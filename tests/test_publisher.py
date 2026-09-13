@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+import datetime as dt
 
 SCRIPT = pathlib.Path(__file__).parents[1] / "scripts/boring-notch-today.py"
 
@@ -17,7 +18,7 @@ class PublisherTests(unittest.TestCase):
         self.env = {**os.environ, "HOME": str(self.home)}
         self.base = {
             "schemaVersion": 1,
-            "generatedAt": "2026-09-13T16:00:00Z",
+            "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
             "rows": [],
             "anki": {"status": "unavailable"},
             "actions": [],
@@ -46,6 +47,9 @@ class PublisherTests(unittest.TestCase):
         cases.append({**self.base, "generatedAt": "2026-09-13"})
         cases.append({**self.base, "anki": {"status": "available", "reviewedToday": "1", "newCards": 0}})
         cases.append({**self.base, "actions": [{"id": "bad", "label": "Bad", "kind": "source", "url": "https:///missing-host"}]})
+        cases.append({**self.base, "unexpected": "not allowed"})
+        cases.append({**self.base, "actions": [{"id": str(index), "label": "Safe", "kind": "itembank"} for index in range(4)]})
+        cases.append({**self.base, "actions": [{"id": "long", "label": "Long", "kind": "source", "url": "https://example.com/" + "a" * 600}]})
         for case in cases: self.assertEqual(self.publish(case).returncode, 2)
 
     def test_rejects_direct_and_parent_storage_symlinks(self):

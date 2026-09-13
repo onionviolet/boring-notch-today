@@ -18,6 +18,8 @@ enum TodayPayloadError: LocalizedError {
 
 struct TodayPayload: Codable, Equatable {
     static let supportedSchemaVersion = 1
+    static let maximumActions = 3
+    static let maximumTextLength = 500
 
     let schemaVersion: Int
     let generatedAt: Date
@@ -32,17 +34,46 @@ struct TodayPayload: Codable, Equatable {
         case schemaVersion, generatedAt, rows, next, protectedTime = "protected", start, anki, actions
     }
 
-    func validated() throws -> TodayPayload {
+    static func decodeValidated(from data: Data, at date: Date = Date()) throws -> TodayPayload {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw TodayPayloadError.invalidText("payload")
+        }
+        try requireOnly(Set(["schemaVersion", "generatedAt", "rows", "next", "protected", "start", "anki", "actions"]), in: object, field: "payload")
+        if let rows = object["rows"] as? [[String: Any]] {
+            for row in rows {
+                try requireOnly(Set(["id", "work", "purpose", "studyMethod", "doneWhen", "time", "whyNow", "basis"]), in: row, field: "row")
+            }
+        }
+        if let anki = object["anki"] as? [String: Any] {
+            try requireOnly(Set(["status", "reviewedToday", "newCards"]), in: anki, field: "anki")
+        }
+        if let actions = object["actions"] as? [[String: Any]] {
+            for action in actions {
+                try requireOnly(Set(["id", "label", "kind", "url"]), in: action, field: "action")
+            }
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(TodayPayload.self, from: data).validated(at: date)
+    }
+
+    private static func requireOnly(_ allowed: Set<String>, in object: [String: Any], field: String) throws {
+        guard Set(object.keys).isSubset(of: allowed) else { throw TodayPayloadError.invalidText("unknown \(field) field") }
+    }
+
+    func validated(at date: Date = Date()) throws -> TodayPayload {
         guard schemaVersion == Self.supportedSchemaVersion else { throw TodayPayloadError.unsupportedSchema(schemaVersion) }
+        guard generatedAt <= date.addingTimeInterval(5 * 60) else { throw TodayPayloadError.invalidText("future generatedAt") }
         guard rows.count <= 5 else { throw TodayPayloadError.tooManyRows }
         for row in rows { try row.validate() }
         guard Set(rows.map(\.id)).count == rows.count else { throw TodayPayloadError.invalidText("duplicate row id") }
         for pair in [("next", next), ("protected", protectedTime), ("start", start)] {
-            if let value = pair.1, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let value = pair.1, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value.count > Self.maximumTextLength {
                 throw TodayPayloadError.invalidText(pair.0)
             }
         }
         try anki?.validate()
+        guard actions.count <= Self.maximumActions else { throw TodayPayloadError.invalidText("too many actions") }
         for action in actions { try action.validate() }
         guard Set(actions.map(\.id)).count == actions.count else { throw TodayPayloadError.invalidText("duplicate action id") }
         return self
@@ -103,7 +134,11 @@ struct TodayAction: Codable, Equatable, Identifiable {
     let url: String?
 
     func validate() throws {
-        guard !id.isEmpty, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              id.count <= TodayPayload.maximumTextLength,
+              label.count <= TodayPayload.maximumTextLength,
+              url?.count ?? 0 <= TodayPayload.maximumTextLength else {
             throw TodayPayloadError.invalidText("action")
         }
         switch kind {

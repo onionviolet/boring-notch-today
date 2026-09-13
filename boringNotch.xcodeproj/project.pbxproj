@@ -118,6 +118,7 @@
 		D0A100012026091300000001 /* TodayPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100012026091300000011 /* TodayPayload.swift */; };
 		D0A100012026091300000002 /* TodayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100012026091300000012 /* TodayStore.swift */; };
 		D0A100012026091300000003 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100012026091300000013 /* TodayView.swift */; };
+		D0A100012026091300000004 /* TodayBridgeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100012026091300000014 /* TodayBridgeStatus.swift */; };
 		B10348D92C74E56000475897 /* ConditionalModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10348D82C74E56000475897 /* ConditionalModifier.swift */; };
 		B10F84A32C6C9596009F3026 /* TestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10F84A22C6C9596009F3026 /* TestView.swift */; };
 		B141C2412CA5F53F00AC8CC8 /* SparkleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B141C2402CA5F53E00AC8CC8 /* SparkleView.swift */; };
@@ -290,6 +291,7 @@
 		D0A100012026091300000011 /* TodayPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayPayload.swift; sourceTree = "<group>"; };
 		D0A100012026091300000012 /* TodayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayStore.swift; sourceTree = "<group>"; };
 		D0A100012026091300000013 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		D0A100012026091300000014 /* TodayBridgeStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayBridgeStatus.swift; sourceTree = "<group>"; };
 		B10348D82C74E56000475897 /* ConditionalModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionalModifier.swift; sourceTree = "<group>"; };
 		B10F84A22C6C9596009F3026 /* TestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestView.swift; sourceTree = "<group>"; };
 		B141C2402CA5F53E00AC8CC8 /* SparkleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleView.swift; sourceTree = "<group>"; };
@@ -520,6 +522,7 @@
 				D0A100012026091300000011 /* TodayPayload.swift */,
 				D0A100012026091300000012 /* TodayStore.swift */,
 				D0A100012026091300000013 /* TodayView.swift */,
+				D0A100012026091300000014 /* TodayBridgeStatus.swift */,
 			);
 			path = Today;
 			sourceTree = "<group>";
@@ -925,6 +928,7 @@
 				D0A100012026091300000001 /* TodayPayload.swift in Sources */,
 				D0A100012026091300000002 /* TodayStore.swift in Sources */,
 				D0A100012026091300000003 /* TodayView.swift in Sources */,
+				D0A100012026091300000004 /* TodayBridgeStatus.swift in Sources */,
 				115C12EC2ED3D003009754CA /* OpenNotchHUD.swift in Sources */,
 				14C08BB92C8DE4B1000F8AA0 /* BoringCalendar.swift in Sources */,
 				5955950D2E900ED800C66711 /* ApplicationRelauncher.swift in Sources */,

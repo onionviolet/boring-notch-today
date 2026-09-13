@@ -6,16 +6,52 @@ struct TodayView: View {
     @State private var actionMessage: String?
 
     var body: some View {
-        Group {
-            switch store.state {
-            case .loading: ProgressView().frame(width: 360, height: 150)
-            case .empty: message(icon: "calendar.badge.exclamationmark", title: "Nothing published for Today", detail: "Ask Codex to publish a bounded Today payload.")
-            case .malformed(let reason): message(icon: "exclamationmark.triangle", title: "Today data needs attention", detail: reason)
-            case .ready(let payload, let isStale): payloadView(payload, isStale: isStale)
+        VStack(spacing: 0) {
+            HStack(spacing: 5) {
+                Circle().fill(bridgeColor).frame(width: 6, height: 6)
+                Text(bridgeLabel).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+            }.padding(.horizontal, 14).padding(.top, 8)
+            Group {
+                switch store.state {
+                case .loading: ProgressView().frame(width: 360, height: 150)
+                case .empty: message(icon: "calendar.badge.exclamationmark", title: "Nothing published for Today", detail: "Ask Codex to publish a bounded Today payload.")
+                case .malformed(let reason): message(icon: "exclamationmark.triangle", title: "Today data needs attention", detail: reason)
+                case .ready(let payload, let isStale): payloadView(payload, isStale: isStale)
+                }
             }
         }
         .frame(width: 430)
         .onAppear { store.start() }
+    }
+
+    private var bridgeLabel: String {
+        if store.refreshPending {
+            switch store.bridgeConnection {
+            case .connected, .refreshing: return "MCP refresh pending"
+            case .disconnected: return "Refresh pending • MCP offline"
+            case .stale: return "Refresh pending • MCP heartbeat stale"
+            case .error: return "Refresh pending • bridge status invalid"
+            }
+        }
+        switch store.bridgeConnection {
+        case .connected: return "MCP live"
+        case .refreshing: return "MCP refresh pending"
+        case .disconnected: return "MCP offline • file fallback"
+        case .stale: return "MCP heartbeat stale • file fallback"
+        case .error: return "Bridge status invalid • file fallback"
+        }
+    }
+
+    private var bridgeColor: Color {
+        if store.refreshPending { return .blue }
+        switch store.bridgeConnection {
+        case .connected: return .green
+        case .refreshing: return .blue
+        case .disconnected: return .gray
+        case .stale: return .orange
+        case .error: return .red
+        }
     }
 
     private func message(icon: String, title: String, detail: String) -> some View {
@@ -58,6 +94,7 @@ struct TodayView: View {
                 Spacer()
                 Button("Refresh") { store.requestRefresh() }.buttonStyle(.bordered)
             }
+            if let notice = store.notice { Text(notice).font(.caption2).foregroundStyle(.orange) }
             if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
         }.padding(14)
     }
