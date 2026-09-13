@@ -102,6 +102,10 @@ brew install --cask TheBoredTeam/boring-notch/boring-notch
 - Use the controls to manage your music like a rockstar.
 - Click the star in your menu bar to customize your notch to your heart's content.
 
+### Today tab in this fork
+
+This personal fork adds a compact, read-only Today tab supplied through a local, validated JSON payload. It never reads or writes the planning vault, and it cannot mark tasks complete. See [Today integration](docs/Today.md) for the install, payload, privacy, rollback, and upstream-sync instructions.
+
 ## 📋 Roadmap
 - [x] Playback live activity 🎧
 - [x] Calendar integration 📆
@@ -193,5 +197,4 @@ For a full list of licenses and attributions, please see the [Third-Party Licens
 
 - **SwiftUI**: For making us look like coding wizards.
 - **You**: For being awesome and checking out **boring.notch**!
-
 

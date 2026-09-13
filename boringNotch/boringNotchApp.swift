@@ -58,6 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     var quickShareService = QuickShareService.shared
     var whatsNewWindow: NSWindow?
+    var todayPreviewWindow: NSWindow?
     var timer: Timer?
     var closeNotchTask: Task<Void, Never>?
     private var previousScreens: [NSScreen]?
@@ -280,6 +281,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+
+        if ProcessInfo.processInfo.arguments.contains("--today-preview-window") {
+            let preview = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            preview.title = "Boring Notch Today Preview"
+            preview.contentView = NSHostingView(rootView: TodayView())
+            preview.center()
+            preview.makeKeyAndOrderFront(nil)
+            todayPreviewWindow = preview
+            NSApp.activate(ignoringOtherApps: true)
+        }
 
         NotificationCenter.default.addObserver(
             self,

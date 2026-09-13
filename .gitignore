@@ -36,6 +36,9 @@ build/
 *.swo
 *.tmp
 *.log
+__pycache__/
+*.pyc
+work/
 
 # Other
 *.DS_Store
@@ -52,4 +55,3 @@ build/
 *.ipa
 *.xcarchive
 *.dSYM
-
