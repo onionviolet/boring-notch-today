@@ -25,8 +25,15 @@ extension NSImage {
                 return
             }
             
-            let width = cgImage.width
-            let height = cgImage.height
+            // Album artwork is commonly thousands of pixels wide. Scaling it down before
+            // averaging avoids allocating and walking a multi-megabyte scratch buffer for
+            // a color that is only used as a visual accent.
+            let maxDimension = 64
+            let sourceWidth = max(1, cgImage.width)
+            let sourceHeight = max(1, cgImage.height)
+            let scale = min(1.0, CGFloat(maxDimension) / CGFloat(max(sourceWidth, sourceHeight)))
+            let width = max(1, Int((CGFloat(sourceWidth) * scale).rounded()))
+            let height = max(1, Int((CGFloat(sourceHeight) * scale).rounded()))
             let totalPixels = width * height
             
             guard let context = CGContext(data: nil,
@@ -42,6 +49,7 @@ extension NSImage {
                 return
             }
             
+            context.interpolationQuality = .high
             context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
             
             guard let data = context.data else {

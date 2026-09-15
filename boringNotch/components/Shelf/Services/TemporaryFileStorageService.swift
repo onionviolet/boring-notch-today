@@ -27,6 +27,28 @@ class TemporaryFileStorageService {
             continuation.resume(returning: result)
         }
     }
+
+    /// Copies a system-owned temporary item before an item-provider callback returns.
+    /// File promises are deleted by the provider as soon as that callback completes.
+    func copyTemporaryItem(at sourceURL: URL, suggestedName: String?) -> URL? {
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let destinationDirectory = tempDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fallbackName = sourceURL.lastPathComponent.isEmpty ? "Attachment" : sourceURL.lastPathComponent
+        let requestedName = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateName = requestedName.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackName
+        let safeName = URL(fileURLWithPath: candidateName).lastPathComponent
+        let destinationURL = destinationDirectory.appendingPathComponent(safeName)
+
+        do {
+            try FileManager.default.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            return destinationURL
+        } catch {
+            try? FileManager.default.removeItem(at: destinationDirectory)
+            print("❌ Error copying promised item: \(error.localizedDescription)")
+            return nil
+        }
+    }
     
     func removeTemporaryFileIfNeeded(at url: URL) {
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())

@@ -74,6 +74,55 @@ extension NSItemProvider {
         }
     }
 
+    /// Materializes a file promise from apps such as Mail, Spark, Outlook, or Messages.
+    /// The provider owns the returned source URL, so copy it before the callback exits.
+    func extractPromisedFile() async -> URL? {
+        guard let typeIdentifier = bestPromisedTypeIdentifier() else { return nil }
+
+        return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            loadFileRepresentation(forTypeIdentifier: typeIdentifier) { sourceURL, error in
+                if let error {
+                    print("❌ Error fulfilling file promise for type \(typeIdentifier): \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                guard let sourceURL else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let copiedURL = TemporaryFileStorageService.shared.copyTemporaryItem(
+                    at: sourceURL,
+                    suggestedName: self.suggestedName
+                )
+                continuation.resume(returning: copiedURL)
+            }
+        }
+    }
+
+    private func bestPromisedTypeIdentifier() -> String? {
+        let excludedIdentifiers: Set<String> = [
+            UTType.url.identifier,
+            UTType.fileURL.identifier,
+            UTType.plainText.identifier,
+            UTType.utf8PlainText.identifier,
+            "com.apple.pasteboard.promised-file-url",
+        ]
+
+        if let concreteIdentifier = registeredTypeIdentifiers.first(where: { identifier in
+            guard !excludedIdentifiers.contains(identifier),
+                  let type = UTType(identifier) else { return false }
+            return type.conforms(to: .data) || type.conforms(to: .content) || type.conforms(to: .item)
+        }) {
+            return concreteIdentifier
+        }
+
+        return hasItemConformingToTypeIdentifier(UTType.data.identifier)
+            ? UTType.data.identifier
+            : nil
+    }
+
     /// Attempts to extract a URL (web link) from the provider
     func extractURL() async -> URL? {
         if self.hasItemConformingToTypeIdentifier(UTType.url.identifier) {

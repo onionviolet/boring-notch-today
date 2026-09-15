@@ -44,6 +44,14 @@ struct ShelfDropService {
         if let text = await provider.extractText() {
             return await ShelfItem(kind: .text(string: text), isTemporary: false)
         }
+
+        if let promisedURL = await provider.extractPromisedFile() {
+            if let bookmark = createBookmark(for: promisedURL) {
+                return await ShelfItem(kind: .file(bookmark: bookmark), isTemporary: true)
+            }
+            TemporaryFileStorageService.shared.removeTemporaryFileIfNeeded(at: promisedURL)
+            return nil
+        }
         
         if let data = await provider.loadData() {
             if let tempDataURL = await TemporaryFileStorageService.shared.createTempFile(for: .data(data, suggestedName: provider.suggestedName)),
@@ -66,4 +74,3 @@ struct ShelfDropService {
         return (try? Bookmark(url: url))?.data
     }
 }
-
