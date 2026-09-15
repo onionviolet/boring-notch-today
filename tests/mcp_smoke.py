@@ -21,6 +21,14 @@ async def main() -> None:
             env={"HOME": home, "PATH": os.environ["PATH"], "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR", str(pathlib.Path.home() / ".cache/uv"))},
         )
         async with Client(parameters) as client:
+            today_root = pathlib.Path(home) / "Library/Application Support/boring.notch/Today"
+            for _ in range(20):
+                if (today_root / "bridge-status.json").exists():
+                    break
+                await asyncio.sleep(0.05)
+            status = json.loads((today_root / "bridge-status.json").read_text())
+            assert status["state"] == "connected"
+
             listed = await client.list_tools()
             names = {tool.name for tool in listed.tools}
             assert names == {"publish_today", "today_status", "pending_today_refresh"}
@@ -34,7 +42,6 @@ async def main() -> None:
             }
             result = await client.call_tool("publish_today", {"payload": payload})
             assert result.structured_content["ok"] is True
-            today_root = pathlib.Path(home) / "Library/Application Support/boring.notch/Today"
             assert (today_root / "payload.json").exists()
 
             request_id = str(uuid.uuid4())

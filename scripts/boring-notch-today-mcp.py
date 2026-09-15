@@ -18,6 +18,8 @@ from today_bridge import (
     now_string,
     publish_payload,
     read_refresh_request,
+    release_heartbeat_leader,
+    try_acquire_heartbeat_leader,
     write_bridge_status,
 )
 
@@ -79,30 +81,37 @@ class Heartbeat:
         self.thread = threading.Thread(target=self._run, name="today-mcp-heartbeat", daemon=True)
         self.started = False
         self.lock = threading.Lock()
+        self.leader_fd: int | None = None
 
     def start(self) -> None:
         with self.lock:
             if self.started:
                 return
             self.started = True
-            write_bridge_status("connected")
             self.thread.start()
 
     def _run(self) -> None:
-        while not self.stop_event.wait(5):
-            try:
-                write_bridge_status("connected")
-            except Exception:
-                pass
+        while not self.stop_event.is_set():
+            if self.leader_fd is None:
+                try:
+                    self.leader_fd = try_acquire_heartbeat_leader()
+                except Exception:
+                    self.leader_fd = None
+            if self.leader_fd is not None:
+                try:
+                    write_bridge_status("connected")
+                except Exception:
+                    pass
+            self.stop_event.wait(5)
 
     def stop(self) -> None:
         if not self.started:
             return
         self.stop_event.set()
-        try:
-            write_bridge_status("disconnected")
-        except Exception:
-            pass
+        self.thread.join(timeout=1)
+        if self.leader_fd is not None:
+            release_heartbeat_leader(self.leader_fd)
+            self.leader_fd = None
 
 
 heartbeat = Heartbeat()
@@ -114,4 +123,5 @@ def ensure_heartbeat() -> None:
 
 if __name__ == "__main__":
     atexit.register(heartbeat.stop)
+    heartbeat.start()
     mcp.run()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import json
 import os
 import pathlib
@@ -11,6 +12,7 @@ import stat
 import tempfile
 import urllib.parse
 import uuid
+from contextlib import contextmanager
 from typing import Any
 
 MAX_PAYLOAD_BYTES = 64 * 1024
@@ -18,6 +20,7 @@ MAX_STATUS_BYTES = 4 * 1024
 MAX_ACTIONS = 3
 MAX_TEXT = 500
 BRIDGE_STALE_SECONDS = 15
+_KEEP_LAST_PUBLISH = object()
 RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 ROOT_KEYS = {"schemaVersion", "generatedAt", "rows", "next", "protected", "start", "anki", "actions"}
 ROW_KEYS = {"id", "work", "purpose", "studyMethod", "doneWhen", "time", "whyNow", "basis"}
@@ -174,6 +177,49 @@ def atomic_write(path: pathlib.Path, data: bytes, *, maximum: int) -> None:
             temp_path.unlink()
 
 
+def _open_lock_file(name: str) -> int:
+    root = ensure_storage()
+    path = root / name
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            invalid("refusing unsafe Today lock")
+        os.fchmod(fd, 0o600)
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+@contextmanager
+def bridge_status_lock():
+    fd = _open_lock_file(".bridge-status.lock")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def try_acquire_heartbeat_leader() -> int | None:
+    """Hold the returned descriptor for as long as this server owns heartbeat writes."""
+    fd = _open_lock_file(".heartbeat.lock")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except BlockingIOError:
+        os.close(fd)
+        return None
+
+
+def release_heartbeat_leader(fd: int) -> None:
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
 def publish_payload(data: Any, *, refresh_request_id: str | None = None) -> pathlib.Path:
     validated = validate_payload(data)
     if refresh_request_id is not None:
@@ -237,7 +283,11 @@ def acknowledge_refresh(request_id: str) -> bool:
     return True
 
 
-def write_bridge_status(state: str, *, last_publish_at: str | None = None) -> None:
+def write_bridge_status(
+    state: str,
+    *,
+    last_publish_at: str | None | object = _KEEP_LAST_PUBLISH,
+) -> None:
     if state not in {"connected", "refreshing", "error", "disconnected"}:
         invalid("invalid bridge state")
     root, _, _, status_path = storage_paths()
@@ -245,17 +295,31 @@ def write_bridge_status(state: str, *, last_publish_at: str | None = None) -> No
         pending = read_refresh_request()
     except (OSError, ValueError, json.JSONDecodeError):
         pending = None
-    body = {
-        "schemaVersion": 1,
-        "state": state,
-        "updatedAt": now_string(),
-        "lastPublishAt": last_publish_at,
-        "refreshRequestId": pending["id"] if pending else None,
-    }
-    encoded = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
-    if status_path.parent != root:
-        invalid("bridge path is not allowed")
-    atomic_write(status_path, encoded, maximum=MAX_STATUS_BYTES)
+    with bridge_status_lock():
+        if last_publish_at is _KEEP_LAST_PUBLISH:
+            preserved_publish_at = None
+            try:
+                previous = read_bounded_json(status_path, MAX_STATUS_BYTES)
+                candidate = previous.get("lastPublishAt") if isinstance(previous, dict) else None
+                if candidate is None or (isinstance(candidate, str) and RFC3339.fullmatch(candidate)):
+                    preserved_publish_at = candidate
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
+            effective_publish_at = preserved_publish_at
+        else:
+            effective_publish_at = last_publish_at
+
+        body = {
+            "schemaVersion": 1,
+            "state": state,
+            "updatedAt": now_string(),
+            "lastPublishAt": effective_publish_at,
+            "refreshRequestId": pending["id"] if pending else None,
+        }
+        encoded = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
+        if status_path.parent != root:
+            invalid("bridge path is not allowed")
+        atomic_write(status_path, encoded, maximum=MAX_STATUS_BYTES)
 
 
 def bridge_summary() -> dict[str, Any]:

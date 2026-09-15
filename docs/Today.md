@@ -39,10 +39,14 @@ Restart the Codex client after adding it. The server exposes only `publish_today
 
 The UI status is literal:
 
-- **MCP live** means a real MCP tool or resource call started a fresh local heartbeat.
+- **MCP live** means at least one local Codex MCP transport is active. When several tasks are open,
+  they elect one heartbeat writer so the shared status file is not rewritten by every process.
 - **MCP refresh pending** means the sidecar reports an outstanding bounded request.
 - **MCP offline** or **heartbeat stale** means the validated file fallback still works.
 - **Bridge status invalid** means the app rejected the status record; it does not display raw bridge errors.
+
+The heartbeat starts with the MCP transport, preserves the last successful publication time, and naturally
+becomes stale within 15 seconds after the final transport exits. No persistent daemon or network listener is used.
 
 The Refresh button writes only a bounded local request containing schema version, UUID, timestamp, and the fixed source name. It does not include a prompt, path, command, URL, credential, or vault text. A connected or scheduled AI workflow must still call `pending_today_refresh`, read only sources it is separately authorized to use, and publish a replacement. MCP notifications and marker creation do not wake an absent or idle agent by themselves.
 

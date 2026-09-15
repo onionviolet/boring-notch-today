@@ -38,6 +38,22 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(status.stat().st_mode & 0o777, 0o600)
         self.assertEqual(today_bridge.bridge_summary()["payload"]["rowCount"], 0)
 
+    def test_heartbeat_preserves_last_publish_time(self):
+        published_at = "2026-09-15T04:00:00Z"
+        today_bridge.write_bridge_status("connected", last_publish_at=published_at)
+        today_bridge.write_bridge_status("connected")
+        _, _, _, status = today_bridge.storage_paths()
+        self.assertEqual(today_bridge.read_bounded_json(status, today_bridge.MAX_STATUS_BYTES)["lastPublishAt"], published_at)
+
+    def test_only_one_heartbeat_writer_leads_at_a_time(self):
+        first = today_bridge.try_acquire_heartbeat_leader()
+        self.assertIsNotNone(first)
+        self.assertIsNone(today_bridge.try_acquire_heartbeat_leader())
+        today_bridge.release_heartbeat_leader(first)
+        replacement = today_bridge.try_acquire_heartbeat_leader()
+        self.assertIsNotNone(replacement)
+        today_bridge.release_heartbeat_leader(replacement)
+
     def test_refresh_requires_fixed_schema_and_matching_ack(self):
         root, payload, refresh, _ = today_bridge.storage_paths()
         root.mkdir(parents=True, mode=0o700)
