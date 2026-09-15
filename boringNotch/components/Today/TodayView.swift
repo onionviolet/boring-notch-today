@@ -64,43 +64,59 @@ struct TodayView: View {
     }
 
     private func payloadView(_ payload: TodayPayload, isStale: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("Today").font(.headline)
-                if isStale { Text("STALE").font(.caption2.weight(.bold)).foregroundStyle(.orange) }
-                Spacer()
-                Text(payload.generatedAt, style: .time).font(.caption2).foregroundStyle(.secondary)
-            }
-            if payload.rows.isEmpty {
-                Text("No ranked work remains. Keep the win small.").font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(payload.rows.enumerated()), id: \.element.id) { index, row in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack { Text("\(index + 1). \(row.work)").font(.subheadline.weight(.semibold)); Spacer(); Text(row.time).font(.caption).foregroundStyle(.secondary) }
-                        Text("\(row.purpose) • \(row.studyMethod)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        Text("Why now: \(row.whyNow)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        Text("Done: \(row.doneWhen) | \(row.basis.rawValue)").font(.caption2).foregroundStyle(.gray).lineLimit(1)
-                    }.padding(.vertical, 2)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack {
+                    Text("Today").font(.headline)
+                    if isStale { Text("STALE").font(.caption2.weight(.bold)).foregroundStyle(.orange) }
+                    Spacer()
+                    Text(payload.generatedAt, style: .time).font(.caption2).foregroundStyle(.secondary)
                 }
+                if payload.rows.isEmpty {
+                    Text("No ranked work remains. Keep the win small.").font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(payload.rows.enumerated()), id: \.element.id) { index, row in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .top) {
+                                Text("\(index + 1). \(row.work)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 8)
+                                Text(row.time)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize()
+                            }
+                            Text("\(row.purpose) • \(row.studyMethod)").font(.caption).foregroundStyle(.secondary)
+                            Text("Why now: \(row.whyNow)").font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text("Done: \(row.doneWhen) | \(row.basis.rawValue)").font(.caption2).foregroundStyle(.gray).fixedSize(horizontal: false, vertical: true)
+                        }.padding(.vertical, 2)
+                    }
+                }
+                if let anki = payload.anki {
+                    Text(anki.status == .available ? "Anki: \(anki.reviewedToday ?? 0) reviewed, \(anki.newCards ?? 0) new" : "Anki is not running").font(.caption).foregroundStyle(.secondary)
+                }
+                if let next = payload.next { labeled("Next", next) }
+                if let protected = payload.protectedTime { labeled("Protected", protected) }
+                if let start = payload.start { labeled("Start", start) }
+                HStack {
+                    ForEach(payload.actions) { action in Button(action.label) { open(action) }.buttonStyle(.bordered) }
+                    Spacer()
+                    Button("Refresh") { store.requestRefresh() }.buttonStyle(.bordered)
+                }
+                if let notice = store.notice { Text(notice).font(.caption2).foregroundStyle(.orange) }
+                if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
             }
-            if let anki = payload.anki {
-                Text(anki.status == .available ? "Anki: \(anki.reviewedToday ?? 0) reviewed, \(anki.newCards ?? 0) new" : "Anki is not running").font(.caption).foregroundStyle(.secondary)
-            }
-            if let next = payload.next { labeled("Next", next) }
-            if let protected = payload.protectedTime { labeled("Protected", protected) }
-            if let start = payload.start { labeled("Start", start) }
-            HStack {
-                ForEach(payload.actions) { action in Button(action.label) { open(action) }.buttonStyle(.bordered) }
-                Spacer()
-                Button("Refresh") { store.requestRefresh() }.buttonStyle(.bordered)
-            }
-            if let notice = store.notice { Text(notice).font(.caption2).foregroundStyle(.orange) }
-            if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
-        }.padding(14)
+            .padding(14)
+        }
+        .frame(maxHeight: 150)
     }
 
     private func labeled(_ label: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 5) { Text("\(label):").font(.caption.weight(.semibold)); Text(text).font(.caption).foregroundStyle(.secondary) }
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label):").font(.caption.weight(.semibold))
+            Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func open(_ action: TodayAction) {
