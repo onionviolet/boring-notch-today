@@ -108,6 +108,7 @@ struct TodayView: View {
                 if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
             }
             .padding(14)
+            .background(TodayScrollPositionKeeper(defaultsKey: "today.scrollOffset"))
         }
         .frame(maxHeight: 150)
     }
@@ -132,6 +133,77 @@ struct TodayView: View {
             NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { _, error in
                 Task { @MainActor in actionMessage = error.map { "Could not open Itembank: \($0.localizedDescription)" } }
             }
+        }
+    }
+}
+
+private struct TodayScrollPositionKeeper: NSViewRepresentable {
+    let defaultsKey: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(defaultsKey: defaultsKey) }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { context.coordinator.attach(to: view) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { context.coordinator.attach(to: view) }
+    }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator {
+        private let defaultsKey: String
+        private weak var scrollView: NSScrollView?
+        private var boundsObserver: NSObjectProtocol?
+
+        init(defaultsKey: String) {
+            self.defaultsKey = defaultsKey
+        }
+
+        func attach(to view: NSView) {
+            guard let enclosingScrollView = enclosingScrollView(for: view), scrollView !== enclosingScrollView else { return }
+            detach()
+            scrollView = enclosingScrollView
+
+            let clipView = enclosingScrollView.contentView
+            if let savedOffset = UserDefaults.standard.object(forKey: defaultsKey) as? NSNumber {
+                clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: savedOffset.doubleValue))
+                enclosingScrollView.reflectScrolledClipView(clipView)
+            }
+            clipView.postsBoundsChangedNotifications = true
+            boundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: clipView,
+                queue: .main
+            ) { [defaultsKey] notification in
+                guard let clipView = notification.object as? NSClipView else { return }
+                UserDefaults.standard.set(clipView.bounds.origin.y, forKey: defaultsKey)
+            }
+        }
+
+        func detach() {
+            if let scrollView {
+                UserDefaults.standard.set(scrollView.contentView.bounds.origin.y, forKey: defaultsKey)
+            }
+            if let boundsObserver {
+                NotificationCenter.default.removeObserver(boundsObserver)
+            }
+            boundsObserver = nil
+            scrollView = nil
+        }
+
+        private func enclosingScrollView(for view: NSView) -> NSScrollView? {
+            var ancestor = view.superview
+            while let current = ancestor {
+                if let scrollView = current as? NSScrollView { return scrollView }
+                ancestor = current.superview
+            }
+            return nil
         }
     }
 }

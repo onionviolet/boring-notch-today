@@ -51,6 +51,7 @@ becomes stale within 15 seconds after the final transport exits. No persistent d
 The Refresh button writes only a bounded local request containing schema version, UUID, timestamp, and the fixed source name. It does not include a prompt, path, command, URL, credential, or vault text. A connected or scheduled AI workflow must still call `pending_today_refresh`, read only sources it is separately authorized to use, and publish a replacement. MCP notifications and marker creation do not wake an absent or idle agent by themselves.
 
 The developer-only `--today-preview-window` argument renders the same `TodayView` used inside the notch.
+The Today pane remembers its last scroll position and restores it after the pane or app is reopened, so details such as assigned page ranges stay where the reader left them.
 
 ## Contract v1
 
