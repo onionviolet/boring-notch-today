@@ -106,7 +106,7 @@ final class TodayStore: ObservableObject {
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.refreshRequestURL.path)
             lastRefreshRequestAt = now
             refreshPending = true
-            notice = "Refresh requested. An authorized AI run must respond."
+            notice = "Refresh requested, waiting for an active agent."
         } catch {
             notice = "Could not create the local refresh request."
         }
