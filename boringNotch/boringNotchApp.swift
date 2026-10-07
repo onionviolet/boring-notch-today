@@ -49,7 +49,7 @@ struct DynamicNotchApp: App {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusItem: NSStatusItem?
     var windows: [String: NSWindow] = [:] // UUID -> NSWindow
     var viewModels: [String: BoringViewModel] = [:] // UUID -> BoringViewModel
@@ -71,6 +71,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow,
+              closingWindow === todayPreviewWindow else { return }
+        todayPreviewWindow = nil
+        DispatchQueue.main.async { NSApp.terminate(nil) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -290,6 +297,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 defer: false
             )
             preview.title = "Boring Notch Today Preview"
+            preview.delegate = self
             preview.contentView = NSHostingView(rootView: TodayView())
             preview.center()
             preview.makeKeyAndOrderFront(nil)

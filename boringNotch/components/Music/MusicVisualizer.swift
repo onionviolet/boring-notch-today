@@ -11,8 +11,17 @@ import SwiftUI
 class AudioSpectrum: NSView {
     private var barLayers: [CAShapeLayer] = []
     private var barScales: [CGFloat] = []
-    private var isPlaying: Bool = true
+    private var isPlaying: Bool = false
     private var animationTimer: Timer?
+
+    deinit {
+        animationTimer?.invalidate()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateAnimationState()
+    }
     
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -96,7 +105,11 @@ class AudioSpectrum: NSView {
     
     func setPlaying(_ playing: Bool) {
         isPlaying = playing
-        if isPlaying {
+        updateAnimationState()
+    }
+
+    private func updateAnimationState() {
+        if isPlaying && window != nil {
             startAnimating()
         } else {
             stopAnimating()
