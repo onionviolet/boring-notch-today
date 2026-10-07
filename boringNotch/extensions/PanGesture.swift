@@ -3,6 +3,9 @@
 //  boringNotch
 //
 //  Created by Richard Kunkli on 21/08/2024.
+//  Momentum handling adapted from Atoll on 2026-09-19.
+//  Copyright (C) 2024-2026 Atoll Contributors. GPL-3.0-or-later.
+//  See THIRD_PARTY_LICENSES for the source revision and notice.
 //
 
 import AppKit
@@ -105,7 +108,10 @@ private struct ScrollMonitor: NSViewRepresentable {
         }
 
         private func handleScroll(_ event: NSEvent) {
-            if event.phase == .ended || event.momentumPhase == .ended {
+            // A real touch can end on the same event that starts momentum.
+            if event.phase == .ended || event.phase == .cancelled {
+                endTask?.cancel()
+                endTask = nil
                 if active {
                     action(accumulated.magnitude, .ended)
                 } else {
@@ -115,6 +121,10 @@ private struct ScrollMonitor: NSViewRepresentable {
                 accumulated = 0
                 return
             }
+
+            // A flick's momentum is not a second gesture after the touch ends.
+            // Keep the normal scroll event available to the underlying view.
+            guard event.momentumPhase.isEmpty else { return }
 
             // Only consider scroll events that are primarily along the configured axis.
             let absDX = abs(event.scrollingDeltaX)

@@ -1,4 +1,30 @@
 -----------------------------------------------------------------------------
+                 GNU General Public License v3.0 or later
+        applies to:
+        - Atoll (DynamicIsland), Copyright (C) 2024-2026 Atoll Contributors
+-----------------------------------------------------------------------------
+
+The momentum-event guard in boringNotch/extensions/PanGesture.swift and media
+timing handling in boringNotch/MediaControllers/NowPlayingController.swift were
+adapted on 2026-09-19 from Atoll's corresponding DynamicIsland source files at
+revision
+bbf3397b46e4e2da9d03bd346b9c5a29bd8543f5:
+https://github.com/Ebullioscopic/Atoll
+
+Atoll itself includes software derived from boring.notch, modified and adapted
+for Atoll (DynamicIsland). No Atoll artwork, branding, or animations are included.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+See LICENSE in this repository for the full GPL v3 text.
+
+-----------------------------------------------------------------------------
                         BSD 3-Clause License
         applies to:
         - MediaRemoteAdapter, Copyright (c) 2025, Jonas van den Berg and contributors

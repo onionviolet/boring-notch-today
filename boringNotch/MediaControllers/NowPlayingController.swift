@@ -3,12 +3,16 @@
 //  boringNotch
 //
 //  Created by Alexander on 2025-03-29.
+//  Modified 2026-09-19: timing adaptation informed by Atoll revision
+//  bbf3397b46e4e2da9d03bd346b9c5a29bd8543f5 (GPL-3.0-or-later).
+//  Portions derived from Atoll (DynamicIsland), Copyright (C) 2024-2026 Atoll Contributors.
 //
 
 import AppKit
 import Combine
 import Foundation
 
+#if !NOW_PLAYING_TIMING_TEST
 final class NowPlayingController: ObservableObject, MediaControllerProtocol {
     func updatePlaybackInfo() async {
         await fetchFavoriteStateIfSupported()
@@ -198,7 +202,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         }
         
         process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
-        process.arguments = [scriptURL.path, frameworkPath, "stream"]
+        process.arguments = [scriptURL.path, frameworkPath, "stream", "--micros"]
         
         let pipeHandler = JSONLinesPipeHandler()
         process.standardOutput = await pipeHandler.getPipe()
@@ -235,20 +239,21 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
         newPlaybackState.title = payload.title ?? (diff ? self.playbackState.title : "")
         newPlaybackState.artist = payload.artist ?? (diff ? self.playbackState.artist : "")
         newPlaybackState.album = payload.album ?? (diff ? self.playbackState.album : "")
-        newPlaybackState.duration = payload.duration ?? (diff ? self.playbackState.duration : 0)
-        
-        if let elapsedTime = payload.elapsedTime {
-            newPlaybackState.currentTime = elapsedTime
-        } else if diff {
-            if payload.playing == false {
-                let timeSinceLastUpdate = Date().timeIntervalSince(self.playbackState.lastUpdated)
-                newPlaybackState.currentTime = self.playbackState.currentTime + (self.playbackState.playbackRate * timeSinceLastUpdate)
-            } else {
-                newPlaybackState.currentTime = self.playbackState.currentTime
-            }
-        } else {
-            newPlaybackState.currentTime = 0
-        }
+        newPlaybackState.duration = payload.resolvedDuration ?? (diff ? self.playbackState.duration : 0)
+
+        let timing = NowPlayingTiming.resolve(
+            previousElapsedTime: self.playbackState.currentTime,
+            previousTimestamp: self.playbackState.lastUpdated,
+            elapsedTime: payload.resolvedElapsedTime,
+            sampleTimestamp: payload.resolvedTimestamp,
+            isDiff: diff,
+            previousIsPlaying: self.playbackState.isPlaying,
+            isPlaying: payload.playing,
+            playbackRate: self.playbackState.playbackRate,
+            newPlaybackRate: payload.playbackRate
+        )
+        newPlaybackState.currentTime = timing.elapsedTime
+        newPlaybackState.lastUpdated = timing.timestamp
 
         
         if let shuffleMode = payload.shuffleMode {
@@ -272,15 +277,6 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
             )
         } else if !diff {
             newPlaybackState.artwork = nil
-        }
-
-        if let dateString = payload.timestamp,
-           let date = ISO8601DateFormatter().date(from: dateString) {
-            newPlaybackState.lastUpdated = date
-        } else if !diff {
-            newPlaybackState.lastUpdated = Date()
-        } else {
-            newPlaybackState.lastUpdated = self.playbackState.lastUpdated
         }
 
         newPlaybackState.playbackRate = payload.playbackRate ?? (diff ? self.playbackState.playbackRate : 1.0)
@@ -324,6 +320,7 @@ final class NowPlayingController: ObservableObject, MediaControllerProtocol {
      }
     
 }
+#endif
 
 struct NowPlayingUpdate: Codable {
     let payload: NowPlayingPayload
@@ -336,6 +333,9 @@ struct NowPlayingPayload: Codable {
     let album: String?
     let duration: Double?
     let elapsedTime: Double?
+    let durationMicros: Double?
+    let elapsedTimeMicros: Double?
+    let timestampEpochMicros: Double?
     let shuffleMode: Int?
     let repeatMode: Int?
     let artworkData: String?
@@ -345,6 +345,73 @@ struct NowPlayingPayload: Codable {
     let parentApplicationBundleIdentifier: String?
     let bundleIdentifier: String?
     let volume: Double?
+}
+
+extension NowPlayingPayload {
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
+    var resolvedDuration: Double? {
+        durationMicros.map { $0 / 1_000_000 } ?? duration
+    }
+
+    var resolvedElapsedTime: Double? {
+        elapsedTimeMicros.map { $0 / 1_000_000 } ?? elapsedTime
+    }
+
+    var resolvedTimestamp: Date? {
+        if let timestampEpochMicros {
+            return Date(timeIntervalSince1970: timestampEpochMicros / 1_000_000)
+        }
+        return timestamp.flatMap(Self.iso8601Formatter.date)
+    }
+}
+
+/// Keeps the playback position and the instant it was sampled as one value.
+/// A diff that omits elapsed time has no newer position to anchor, even when it
+/// carries unrelated metadata or its own timestamp. An explicit pause/resume
+/// transition is anchored at receipt time so the paused interval is never
+/// counted as playback after resume.
+struct NowPlayingTiming {
+    let elapsedTime: TimeInterval
+    let timestamp: Date
+
+    static func resolve(
+        previousElapsedTime: TimeInterval,
+        previousTimestamp: Date,
+        elapsedTime: TimeInterval?,
+        sampleTimestamp: Date?,
+        isDiff: Bool,
+        previousIsPlaying: Bool = false,
+        isPlaying: Bool? = nil,
+        playbackRate: Double = 1,
+        newPlaybackRate: Double? = nil,
+        receiptTime: Date = Date()
+    ) -> Self {
+        if let elapsedTime {
+            return Self(elapsedTime: elapsedTime, timestamp: sampleTimestamp ?? receiptTime)
+        }
+        if isDiff {
+            let hasPlaybackStateChange = isPlaying.map { $0 != previousIsPlaying } ?? false
+            let hasPlaybackRateChange = newPlaybackRate.map { $0 != playbackRate } ?? false
+
+            // A pause or playback-rate event arrives after its last position
+            // sample. Project only the active span to this receipt, then bind
+            // the result to that receipt; repeated paused metadata will keep
+            // the pair unchanged and a later resume cannot include the pause.
+            if previousIsPlaying && (hasPlaybackStateChange || hasPlaybackRateChange) {
+                let elapsedSinceAnchor = max(0, receiptTime.timeIntervalSince(previousTimestamp))
+                return Self(
+                    elapsedTime: previousElapsedTime + (elapsedSinceAnchor * playbackRate),
+                    timestamp: receiptTime
+                )
+            }
+            if hasPlaybackStateChange {
+                return Self(elapsedTime: previousElapsedTime, timestamp: receiptTime)
+            }
+            return Self(elapsedTime: previousElapsedTime, timestamp: previousTimestamp)
+        }
+        return Self(elapsedTime: 0, timestamp: sampleTimestamp ?? receiptTime)
+    }
 }
 
 actor JSONLinesPipeHandler {

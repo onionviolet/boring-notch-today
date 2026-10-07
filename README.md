@@ -106,6 +106,9 @@ brew install --cask TheBoredTeam/boring-notch/boring-notch
 
 This personal fork adds a compact, read-only Today tab supplied through a local, validated JSON payload. A narrow stdio MCP server lets an authorized AI publish snapshots, while a macOS directory watcher displays atomic changes promptly and retains 15-second fallback polling. It never reads or writes the planning vault, and it cannot mark tasks complete. See [Today integration](docs/Today.md) for setup, live-state semantics, privacy, rollback, and upstream-sync instructions.
 
+See the [Atoll comparison](docs/Atoll-review.md) for existing feature overlap,
+selective reliability fixes, and optional additions considered for this fork.
+
 ## 📋 Roadmap
 - [x] Playback live activity 🎧
 - [x] Calendar integration 📆
