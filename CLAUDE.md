@@ -24,13 +24,13 @@ Full contract, status semantics and security limits: `docs/Today.md`. Read it be
 
 ## Build and test
 
-Run from the repo root. These are the commands documented in `docs/Today.md` and `HANDOFF.md` (I did not run them).
+Run from the repo root. Python, MCP smoke, standalone Swift and the unsigned Release command below passed on 2026-10-07; see `HANDOFF.md` for the distinct gates and runtime limits.
 
 ```bash
 python3 -m unittest -v tests/test_publisher.py tests/test_bridge.py
 uv run --with 'mcp>=2,<3' python tests/mcp_smoke.py
 swiftc boringNotch/components/Today/TodayPayload.swift boringNotch/components/Today/TodayBridgeStatus.swift tests/TodayPayloadTests.swift -o work/today-tests && work/today-tests
-xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Release build
+xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Release -derivedDataPath work/DerivedData -jobs 2 CODE_SIGNING_ALLOWED=NO build
 ```
 
 - Local visual test: add `CODE_SIGNING_ALLOWED=NO` to the xcodebuild line. The signed build compiles, but launching it can fail on an upstream `MediaRemoteAdapter` Team-ID mismatch. Then `open .../Release/boringNotch.app --args --today-preview-window` renders the real `TodayView` in a window.
@@ -52,7 +52,7 @@ xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Rel
 - Refresh button writes a bounded UUID request only; repeated clicks keep the pending ID.
 - Replacing `/Applications/boringNotch.app` invalidates Computer Use bindings; reattach by full path. Prior installs were backed up to `~/.Trash`.
 - After a publish, `today_status` should show `connected: true`, `payloadValid: true`; then inspect the installed app. The status line `MCP heartbeat stale • file fallback` is transport state, not payload freshness.
-- Python tests currently count 10 per Codex 2026-09-19 notes; `HANDOFF.md` says 7. Trust a fresh run.
+- Fresh run on 2026-10-07: **9/9 Python test methods** pass (3 publisher, 6 bridge). This supersedes the old 7/10 counts; MCP smoke and standalone Swift suites are separate gates.
 
 ## Verification gates
 
@@ -64,9 +64,9 @@ Keep these separate and never upgrade one to another: source edit, Python/Swift 
 
 ## Current state and resume point
 
-- `HANDOFF.md` is the Codex-era resume doc for the MCP/live bridge (gate PASS at that time). It predates later commits (scroll persistence, scan-friendly layout, refresh status), so treat it as history plus open items: restart the MCP client to pick up the server; signed distribution needs the `MediaRemoteAdapter` Team ID reconciled.
-- Local branches `codex/open-today-shortcut` and `codex/today-freshness-accessibility` exist, not on origin (verified by `git branch -vv`; their status is unknown).
-- Working tree is dirty with user/Codex edits (README, THIRD_PARTY_LICENSES, `NowPlayingController.swift`, `boringNotchApp.swift`, `MusicVisualizer.swift`, `NotchHomeView.swift`, `PanGesture.swift`, plus untracked `docs/Atoll-review.md`, `tests/NowPlayingTimingTests.swift`, `tests/PanGestureTests.swift`). Do not revert, stash or commit them without being asked; stage only your own paths.
+- `HANDOFF.md` was refreshed on 2026-10-07 with main history, Atoll commits, fresh test/unsigned-build gates and open items. MCP client restart and signed-distribution `MediaRemoteAdapter` Team ID reconciliation remain separate manual gates.
+- Local branch triage on 2026-10-07: `codex/open-today-shortcut` replays onto main cleanly; recommend merge. `codex/today-freshness-accessibility` conflicts in TodayStore/TodayView; recommend replay onto a new integration branch, resolve the current-layout overlap, then merge after its integration gates. Both pass Python/Swift and unsigned Release gates in the tested states recorded in `HANDOFF.md`; neither was merged or rewritten.
+- The ten carried Atoll/cleanup paths were committed on `codex/atoll-fixes` as `cf461f5` and `67ca6bb` after the requested tests and an unsigned Release build passed. Main remains at `3baab5f`; nothing was pushed or installed. Preserve any new user edits and stage only explicitly authorized task paths.
 
 ## Codex history
 
