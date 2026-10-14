@@ -32,6 +32,24 @@ final class CameraModel {
     private(set) var activeSession: AVCaptureSession?
     private(set) var isIntendedRunning = false
 
+    @ObservationIgnored private var previewConsumers: [UUID: String] = [:]
+    var isDemandSuspended: Bool { isIntendedRunning && previewConsumers.isEmpty }
+
+    func setPreviewDemand(_ id: UUID, owner: String, visible: Bool) {
+        let hadDemand = !previewConsumers.isEmpty
+        if visible { previewConsumers[id] = owner } else { previewConsumers.removeValue(forKey: id) }
+        let hasDemand = !previewConsumers.isEmpty
+        guard hadDemand != hasDemand, isIntendedRunning else { return }
+        if hasDemand { state = .starting; engine.start(selection: selection) }
+        else { activeSession = nil; activeCameraID = nil; state = .stopped; engine.stop() }
+    }
+
+    func closePreview(owner: String) {
+        previewConsumers = previewConsumers.filter { $0.value != owner }
+        // Ordinary close clears user intent only when the last owning window closes.
+        if previewConsumers.isEmpty { stopSession() }
+    }
+
     @ObservationIgnored private let engine: CameraSessionEngine
     @ObservationIgnored private var startAfterAuthorization = false
     @ObservationIgnored private var lastPublishedDeviceList: [CameraDevice]?
@@ -40,7 +58,7 @@ final class CameraModel {
     var isSessionRunning: Bool { state == .running }
 
     private func syncEngineIfNeeded() {
-        guard isIntendedRunning, authorizationStatus == .authorized else { return }
+        guard isIntendedRunning, !previewConsumers.isEmpty, authorizationStatus == .authorized else { return }
         let satisfiable: Bool
         switch selection {
         case .automatic:
@@ -90,6 +108,7 @@ final class CameraModel {
         startAfterAuthorization = false
         isIntendedRunning = true
 
+        guard !previewConsumers.isEmpty else { state = .stopped; return }
         guard cameraAvailable else {
             state = .unavailable
             engine.start(selection: selection)
@@ -101,7 +120,7 @@ final class CameraModel {
     }
 
     func stopSession() {
-        guard state != .stopped else { return }
+        guard isIntendedRunning || startAfterAuthorization || state != .stopped else { return }
         startAfterAuthorization = false
         isIntendedRunning = false
         state = .stopped
@@ -122,7 +141,7 @@ final class CameraModel {
         guard selection != self.selection else { return }
         self.selection = selection
 
-        guard isIntendedRunning else { return }
+        guard isIntendedRunning, !previewConsumers.isEmpty else { return }
         // Pinning the camera that is already live needs no action: the session
         // exists, shows this device, and the engine confirms on its next
         // reconcile. Any other change hands off through .starting.
@@ -191,10 +210,9 @@ final class CameraModel {
             syncEngineIfNeeded()
 
         case .started(let session, let device):
-            // A started event proves the engine was told to run; adopt that
-            // intent so directly published sessions (recovery, wake, tests)
-            // surface a live preview.
-            isIntendedRunning = true
+            // Ignore a completion queued before suspension/ordinary close. It
+            // must never recreate user intent or recover invisible capture.
+            guard isIntendedRunning, !previewConsumers.isEmpty else { return }
             lastPublishedDeviceList = availableCameras
             activeSession = session
             activeCameraID = device.id

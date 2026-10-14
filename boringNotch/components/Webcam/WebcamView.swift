@@ -97,6 +97,38 @@ struct CameraPreviewView: View {
     }
 }
 
+/// This exists even while the session is stopped, allowing a visible preview
+/// to resume retained intent without relying on the capture layer to reappear.
+struct CameraPreviewDemandView: NSViewRepresentable {
+    let camera: CameraModel
+    let owner: String
+    func makeNSView(context: Context) -> CameraDemandNSView {
+        let view = CameraDemandNSView()
+        view.camera = camera
+        view.owner = owner
+        view.visibilityChanged = { [weak view] visible in
+            guard let view else { return }
+            view.camera?.setPreviewDemand(view.id, owner: view.owner, visible: visible)
+        }
+        return view
+    }
+    func updateNSView(_ nsView: CameraDemandNSView, context: Context) {
+        if nsView.owner != owner {
+            nsView.owner = owner
+            camera.setPreviewDemand(nsView.id, owner: owner, visible: nsView.consumerVisible)
+        }
+        nsView.refreshVisibility()
+    }
+    static func dismantleNSView(_ nsView: CameraDemandNSView, coordinator: ()) { nsView.detach() }
+}
+
+final class CameraDemandNSView: VisibleConsumerView {
+    let id = UUID()
+    weak var camera: CameraModel?
+    var owner = "primary"
+    func detach() { camera?.setPreviewDemand(id, owner: owner, visible: false) }
+}
+
 /// AppKit-native preview: owns its own `AVCaptureVideoPreviewLayer` as a
 /// sublayer and keeps mirroring at the capture-connection level so SwiftUI
 /// transforms are not involved.

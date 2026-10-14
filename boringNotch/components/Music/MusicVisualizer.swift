@@ -9,10 +9,62 @@ import Cocoa
 import Defaults
 import SwiftUI
 
-class MusicVisualizerModel: NSView, AudioCaptureLevelsConsumer {
+/// Native visibility, rather than notch open/closed state, defines demand.
+/// Closed wings can contain a waveform; detached or occluded windows cannot.
+class VisibleConsumerView: NSView {
+    var visibilityChanged: ((Bool) -> Void)?
+    private(set) var consumerVisible = false
+    private var displayAsleep = false
+    private var screenLocked = false
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        observeVisibility()
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        observeVisibility()
+    }
+    deinit { for (center, token) in observers { center.removeObserver(token) } }
+
+    private func observeVisibility() {
+        func observe(_ center: NotificationCenter, _ name: Notification.Name, _ change: @escaping (VisibleConsumerView) -> Void) {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                change(self)
+                self.refreshVisibility()
+            }
+            observers.append((center, token))
+        }
+        observe(.default, NSWindow.didChangeOcclusionStateNotification) { _ in }
+        observe(.default, Notification.Name("BoringNotch.consumerVisibilityChanged")) { _ in }
+        observe(.default, NSWindow.willCloseNotification) { _ in }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidSleepNotification) { $0.displayAsleep = true }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidWakeNotification) { $0.displayAsleep = false }
+        observe(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsLocked")) { $0.screenLocked = true }
+        observe(DistributedNotificationCenter.default(), Notification.Name("com.apple.screenIsUnlocked")) { $0.screenLocked = false }
+    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refreshVisibility() }
+    override func viewDidHide() { super.viewDidHide(); refreshVisibility() }
+    override func viewDidUnhide() { super.viewDidUnhide(); refreshVisibility() }
+
+    func refreshVisibility() {
+        let visible = !displayAsleep && !screenLocked && !isHiddenOrHasHiddenAncestor
+            && window?.isVisible == true && (window?.alphaValue ?? 0) > 0
+            && window?.occlusionState.contains(.visible) == true
+        guard visible != consumerVisible else { return }
+        consumerVisible = visible
+        visibilityChanged?(visible)
+    }
+}
+
+class MusicVisualizerModel: VisibleConsumerView, AudioCaptureLevelsConsumer {
     private var barLayers: [CAGradientLayer] = []
     private var isPlaying = false
     private var useRealtime = false
+    private var requestsRealtime = false
+    private var registeredConsumer = false
     private var tintColor: NSColor = .systemBlue
     private var lastTintColor: NSColor?
 
@@ -33,6 +85,7 @@ class MusicVisualizerModel: NSView, AudioCaptureLevelsConsumer {
         super.init(frame: frameRect)
         wantsLayer = true
         setupBars()
+        visibilityChanged = { [weak self] _ in self?.updateDemand() }
     }
 
     required init?(coder: NSCoder) {
@@ -40,6 +93,7 @@ class MusicVisualizerModel: NSView, AudioCaptureLevelsConsumer {
         super.init(coder: coder)
         wantsLayer = true
         setupBars()
+        visibilityChanged = { [weak self] _ in self?.updateDemand() }
     }
 
     deinit {
@@ -173,7 +227,26 @@ class MusicVisualizerModel: NSView, AudioCaptureLevelsConsumer {
         guard attachedManager !== manager else { return }
         attachedManager?.clearLevelsConsumer(self)
         attachedManager = manager
-        manager.setLevelsConsumer(self)
+        updateDemand()
+    }
+
+    func setRealtimeDemand(_ enabled: Bool) {
+        requestsRealtime = enabled
+        updateDemand()
+    }
+
+    private func updateDemand() {
+        let needed = consumerVisible && requestsRealtime
+        guard needed != registeredConsumer, let attachedManager else { return }
+        registeredConsumer = needed
+        if needed { attachedManager.setLevelsConsumer(self) }
+        else { attachedManager.clearLevelsConsumer(self) }
+    }
+
+    func detach() {
+        attachedManager?.clearLevelsConsumer(self)
+        registeredConsumer = false
+        attachedManager = nil
     }
 
     func syncCurrentLevels(from manager: AudioCaptureManager) {
@@ -232,16 +305,21 @@ struct MusicVisualizer: NSViewRepresentable {
         spectrum.setUseRealtime(realtimeEnabled && audioCapture.isCapturing)
         spectrum.setPlaying(isPlaying)
         spectrum.attach(to: audioCapture)
+        spectrum.setRealtimeDemand(realtimeEnabled)
         spectrum.syncCurrentLevels(from: audioCapture)
         return spectrum
     }
 
     func updateNSView(_ nsView: MusicVisualizerModel, context: Context) {
+        nsView.setRealtimeDemand(realtimeEnabled)
+        nsView.refreshVisibility()
         nsView.setTintColor(NSColor(tintColor))
         nsView.setUseRealtime(realtimeEnabled && audioCapture.isCapturing)
         nsView.setPlaying(isPlaying)
         nsView.syncCurrentLevels(from: audioCapture)
     }
+    static func dismantleNSView(_ nsView: MusicVisualizerModel, coordinator: ()) { nsView.detach() }
+
 }
 
 #Preview {

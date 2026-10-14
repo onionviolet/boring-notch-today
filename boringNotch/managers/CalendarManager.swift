@@ -24,15 +24,24 @@ final class CalendarManager: ObservableObject {
     @Published var calendarAuthorizationStatus: EKAuthorizationStatus = .notDetermined
     @Published var reminderAuthorizationStatus: EKAuthorizationStatus = .notDetermined
     private var selectedCalendars: [CalendarModel] = []
-    private let calendarService = CalendarService()
+    private let calendarService: CalendarServiceProviding
+    private struct QueryKey: Equatable { let day: Date; let calendars: [String] }
+    private var visibleCalendars = Set<UUID>()
+    func setVisible(_ id: UUID, visible: Bool) {
+        if visible { visibleCalendars.insert(id) } else { visibleCalendars.remove(id) }
+    }
+    private var queryGeneration = 0
+    private var activeQuery: (key: QueryKey, generation: Int, task: Task<[EventModel], Never>)?
 
     private var eventStoreChangedObserver: NSObjectProtocol?
     /// EventKit can fire EKEventStoreChanged in bursts during syncs; reloads
     /// coalesce so the UI refreshes once per burst instead of per notification.
     private var reloadTask: Task<Void, Never>?
 
-    private init() {
+    init(calendarService: CalendarServiceProviding = CalendarService(), observeChanges: Bool = true) {
+        self.calendarService = calendarService
         self.currentWeekStartDate = CalendarManager.startOfDay(Date())
+        guard observeChanges else { return }
         setupEventStoreChangedObserver()
         Task {
             await reloadCalendarAndReminderLists()
@@ -56,18 +65,19 @@ final class CalendarManager: ObservableObject {
                 defer { self.reloadTask = nil }
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { return }
-                await self.reloadCalendarAndReminderLists()
+                await self.reloadCalendarAndReminderLists(refreshVisibleEvents: true)
             }
         }
     }
 
     @MainActor
-    func reloadCalendarAndReminderLists() async {
+    func reloadCalendarAndReminderLists(refreshVisibleEvents: Bool = false) async {
         let all = await calendarService.calendars()
         self.eventCalendars = all.filter { !$0.isReminder }
         self.reminderLists = all.filter { $0.isReminder }
         self.allCalendars = all // for legacy compatibility, can be removed if not needed
         updateSelectedCalendars()
+        if refreshVisibleEvents, !visibleCalendars.isEmpty { await updateEvents(force: true) }
     }
 
     func checkCalendarAuthorization() async {
@@ -86,20 +96,14 @@ final class CalendarManager: ObservableObject {
             self.calendarAuthorizationStatus = granted ? .fullAccess : .denied
             if granted {
                 await reloadCalendarAndReminderLists()
-                events = await calendarService.events(
-                    from: currentWeekStartDate,
-                    to: Calendar.current.date(byAdding: .day, value: 1, to: currentWeekStartDate)!,
-                    calendars: selectedCalendars.map { $0.id })
+                await updateEvents()
             }
         case .restricted, .denied:
             NSLog("Calendar access denied or restricted")
         case .fullAccess:
             NSLog("Full access")
             await reloadCalendarAndReminderLists()
-            events = await calendarService.events(
-                from: currentWeekStartDate,
-                to: Calendar.current.date(byAdding: .day, value: 1, to: currentWeekStartDate)!,
-                calendars: selectedCalendars.map { $0.id })
+            await updateEvents()
         case .writeOnly:
             NSLog("Write only")
         @unknown default:
@@ -189,22 +193,32 @@ final class CalendarManager: ObservableObject {
         await updateEvents()
     }
 
-    private func updateEvents() async {
-        let calendarIDs = selectedCalendars.map { $0.id }
-        let eventsResult = await calendarService.events(
-            from: currentWeekStartDate,
-            to: Calendar.current.date(byAdding: .day, value: 1, to: currentWeekStartDate)!,
-            calendars: calendarIDs
-        )
-        self.events = eventsResult
+    private func updateEvents(force: Bool = false) async {
+        let key = QueryKey(day: currentWeekStartDate, calendars: selectedCalendars.map { $0.id }.sorted())
+        let generation: Int
+        let task: Task<[EventModel], Never>
+        if !force, let activeQuery, activeQuery.key == key {
+            generation = activeQuery.generation
+            task = activeQuery.task
+        } else {
+            queryGeneration += 1
+            generation = queryGeneration
+            task = Task { [calendarService] in
+                await calendarService.events(from: key.day,
+                    to: Calendar.current.date(byAdding: .day, value: 1, to: key.day)!, calendars: key.calendars)
+            }
+            activeQuery = (key, generation, task)
+        }
+        let result = await task.value
+        guard generation == queryGeneration, key.day == currentWeekStartDate,
+              key.calendars == selectedCalendars.map({ $0.id }).sorted() else { return }
+        if events != result { events = result }
+        if activeQuery?.generation == generation { activeQuery = nil }
     }
 
     func setReminderCompleted(reminderID: String, completed: Bool) async {
         await calendarService.setReminderCompleted(reminderID: reminderID, completed: completed)
         // Refresh events after updating
-        events = await calendarService.events(
-            from: currentWeekStartDate,
-            to: Calendar.current.date(byAdding: .day, value: 1, to: currentWeekStartDate)!,
-            calendars: selectedCalendars.map { $0.id })
+        await updateEvents(force: true)
     }
 }

@@ -13,16 +13,24 @@ import Foundation
 final class ShelfPersistenceService {
     static let shared = ShelfPersistenceService()
 
+    private let writeQueue = DispatchQueue(label: "BoringNotch.ShelfPersistence", qos: .utility)
     private let fileURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    private init() {
+    init(fileURL: URL? = nil) {
+        if let fileURL {
+            self.fileURL = fileURL
+            encoder.outputFormatting = [.prettyPrinted]
+            decoder.dateDecodingStrategy = .iso8601
+            encoder.dateEncodingStrategy = .iso8601
+            return
+        }
         let fm = FileManager.default
         let support = try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = (support ?? fm.temporaryDirectory).appendingPathComponent("boringNotch", isDirectory: true).appendingPathComponent("Shelf", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        fileURL = dir.appendingPathComponent("items.json")
+        self.fileURL = dir.appendingPathComponent("items.json")
         encoder.outputFormatting = [.prettyPrinted]
         decoder.dateDecodingStrategy = .iso8601
         encoder.dateEncodingStrategy = .iso8601
@@ -72,20 +80,25 @@ final class ShelfPersistenceService {
     func save(_ items: [ShelfItem]) {
         do {
             let data = try encoder.encode(items)
-            try data.write(to: fileURL, options: Data.WritingOptions.atomic)
+            try writeQueue.sync { try data.write(to: fileURL, options: .atomic) }
         } catch {
             Log.shelf.error("Failed to save shelf items: \(error.localizedDescription)")
         }
     }
 
+    @MainActor
     func saveAsync(_ items: [ShelfItem]) async {
-        await Task.detached(priority: .utility) { [fileURL, encoder] in
-            do {
-                let data = try encoder.encode(items)
-                try data.write(to: fileURL, options: Data.WritingOptions.atomic)
-            } catch {
-                Log.shelf.error("Failed to save shelf items: \(error.localizedDescription)")
+        do {
+            // Encode before suspension. FIFO writes keep an older async save from
+            // overtaking a newer snapshot or the synchronous shutdown flush.
+            let data = try encoder.encode(items)
+            await withCheckedContinuation { continuation in
+                writeQueue.async { [fileURL] in
+                    do { try data.write(to: fileURL, options: .atomic) }
+                    catch { Log.shelf.error("Failed to save shelf items: \(error.localizedDescription)") }
+                    continuation.resume()
+                }
             }
-        }.value
+        } catch { Log.shelf.error("Failed to encode shelf items: \(error.localizedDescription)") }
     }
 }

@@ -12,7 +12,7 @@ final class ShelfStateViewModel: ObservableObject {
     static let shared = ShelfStateViewModel()
 
     @Published private(set) var items: [ShelfItem] = [] {
-        didSet { schedulePersistence() }
+        didSet { if hasLoaded, items != oldValue { schedulePersistence() } }
     }
 
     @Published var isLoading: Bool = false
@@ -20,11 +20,20 @@ final class ShelfStateViewModel: ObservableObject {
     var isEmpty: Bool { items.isEmpty }
 
     // Debounced persistence
+    private var hasLoaded = false
+    private var cleanupTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
     private let persistenceDelay: Duration = .seconds(1)
 
-    private init() {
-        items = ShelfPersistenceService.shared.load()
+    private let persistence: ShelfPersistenceService
+    private let validateBookmark: (Data) async -> Bool
+
+    init(persistence: ShelfPersistenceService = .shared,
+         validateBookmark: @escaping (Data) async -> Bool = { await Bookmark(data: $0).validate() }) {
+        self.persistence = persistence
+        self.validateBookmark = validateBookmark
+        items = persistence.load()
+        hasLoaded = true
     }
 
     private func schedulePersistence() {
@@ -32,7 +41,7 @@ final class ShelfStateViewModel: ObservableObject {
         persistenceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.persistenceDelay ?? .seconds(1))
             guard let self = self, !Task.isCancelled else { return }
-            await ShelfPersistenceService.shared.saveAsync(self.items)
+            await self.persistence.saveAsync(self.items)
         }
     }
 
@@ -48,7 +57,7 @@ final class ShelfStateViewModel: ObservableObject {
                 seen.insert(key)
             }
         }
-        items = merged
+        if items != merged { items = merged }
     }
 
     func remove(_ item: ShelfItem) {
@@ -58,7 +67,7 @@ final class ShelfStateViewModel: ObservableObject {
 
     func updateBookmark(for item: ShelfItem, bookmark: Data) {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
-        if case .file = items[idx].kind {
+        if case .file(let previous) = items[idx].kind, previous != bookmark {
             items[idx] = ShelfItem(id: items[idx].id, kind: .file(bookmark: bookmark), isTemporary: items[idx].isTemporary)
         }
     }
@@ -76,23 +85,22 @@ final class ShelfStateViewModel: ObservableObject {
     }
 
     func cleanupInvalidItems() {
-        Task { [weak self] in
+        guard cleanupTask == nil else { return }
+        cleanupTask = Task { [weak self] in
             guard let self else { return }
-            var keep: [ShelfItem] = []
-            for item in self.items {
-                switch item.kind {
-                case .file(let data):
-                    let bookmark = Bookmark(data: data)
-                    if await bookmark.validate() {
-                        keep.append(item)
-                    } else {
-                        item.cleanupStoredData()
-                    }
-                default:
-                    keep.append(item)
-                }
+            defer { self.cleanupTask = nil }
+            let snapshot = self.items
+            var invalid: [ShelfItem] = []
+            for item in snapshot {
+                if case .file(let data) = item.kind,
+                   !(await self.validateBookmark(data)) { invalid.append(item) }
             }
-            await MainActor.run { self.items = keep }
+            // Reconcile removals against current values. A refreshed bookmark or
+            // new drop during validation is newer than this snapshot and survives.
+            let removed = self.items.filter { invalid.contains($0) }
+            guard !removed.isEmpty else { return }
+            removed.forEach { $0.cleanupStoredData() }
+            self.items.removeAll { removed.contains($0) }
         }
     }
 
@@ -120,6 +128,6 @@ final class ShelfStateViewModel: ObservableObject {
         persistenceTask = nil
 
         // Perform a synchronous, atomic save to disk
-        ShelfPersistenceService.shared.save(self.items)
+        persistence.save(self.items)
     }
 }

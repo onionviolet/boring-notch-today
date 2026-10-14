@@ -592,6 +592,11 @@ struct NotchHomeView: View {
 
             }
         }
+        .background {
+            if Defaults[.showMirror] && vm.notchState == .open {
+                CameraPreviewDemandView(camera: vm.camera, owner: vm.screenUUID ?? "primary")
+            }
+        }
         .transition(.opacity)
         .blur(radius: vm.notchState == .closed ? 30 : 0)
     }

@@ -179,6 +179,7 @@ final class NotchWindowManager {
                 y: screenFrame.origin.y + screenFrame.height - window.frame.height
             ))
         window.alphaValue = 1
+        NotificationCenter.default.post(name: Notification.Name("BoringNotch.consumerVisibilityChanged"), object: window)
     }
 
     func adjustWindowPosition(changeAlpha: Bool = false) {
@@ -242,6 +243,7 @@ final class NotchWindowManager {
             guard let selectedScreen, let selectedUUID = selectedScreen.displayUUID else {
                 if let window = primaryWindow {
                     window.alphaValue = 0
+                    NotificationCenter.default.post(name: Notification.Name("BoringNotch.consumerVisibilityChanged"), object: window)
                 }
                 return
             }

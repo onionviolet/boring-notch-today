@@ -468,6 +468,7 @@ struct CalendarView: View {
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject private var calendarManager = CalendarManager.shared
     @State private var selectedDate = Date()
+    @State private var visibilityID = UUID()
     @Default(.calendarWeekView) private var calendarWeekView
 
     var body: some View {
@@ -488,22 +489,25 @@ struct CalendarView: View {
                 EventListView(events: calendarManager.events)
             }
         }
-        .onChange(of: selectedDate) {
-            Task {
-                await calendarManager.updateCurrentDate(selectedDate)
-            }
+        .onChange(of: selectedDate) { _, date in
+            Task { await calendarManager.updateCurrentDate(date) }
         }
-        .onChange(of: vm.notchState) { _, _ in
-            Task {
-                await calendarManager.updateCurrentDate(Date.now)
-                selectedDate = Date.now
-            }
+        .onChange(of: vm.notchState) { _, state in
+            if state == .open { refreshToday() }
         }
         .onAppear {
-            Task {
-                await calendarManager.updateCurrentDate(Date.now)
-                selectedDate = Date.now
-            }
+            calendarManager.setVisible(visibilityID, visible: true)
+            refreshToday()
+        }
+        .onDisappear { calendarManager.setVisible(visibilityID, visible: false) }
+    }
+
+    private func refreshToday() {
+        let today = Calendar.current.startOfDay(for: Date.now)
+        if selectedDate != today {
+            selectedDate = today // the selection observer owns this query
+        } else {
+            Task { await calendarManager.updateCurrentDate(today) }
         }
     }
 

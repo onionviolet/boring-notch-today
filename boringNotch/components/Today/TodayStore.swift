@@ -22,15 +22,20 @@ final class TodayStore: ObservableObject {
     private var timer: Timer?
     private var watcher: DispatchSourceFileSystemObject?
     private var watchedURL: URL?
+    private var watchedInode: UInt64?
     private var debounceWorkItem: DispatchWorkItem?
     private var lastGoodPayload: TodayPayload?
     private var latestPayloadAccepted = false
     private var lastRefreshRequestAt: Date?
 
+    private var payloadIdentity: PayloadIdentity?
+    private(set) var payloadDecodeCount = 0
+    private let storageDirectory: URL
     private let defaults: UserDefaults
     private let clock: () -> Date
 
-    init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = Date.init, initialPayload: TodayPayload? = nil) {
+    init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = Date.init, initialPayload: TodayPayload? = nil, directory: URL? = nil) {
+        self.storageDirectory = directory ?? Self.directoryURL
         self.defaults = defaults
         self.clock = clock
         now = clock()
@@ -67,6 +72,36 @@ final class TodayStore: ObservableObject {
         }
     }
 
+    private var payloadURL: URL { storageDirectory.appendingPathComponent("payload.json") }
+    private var bridgeStatusURL: URL { storageDirectory.appendingPathComponent("bridge-status.json") }
+    private var refreshRequestURL: URL { storageDirectory.appendingPathComponent("refresh-request.json") }
+
+    // lstat is repeated even on cache hits: identity includes replacement, in-place
+    // edits and metadata changes. Never cache acceptance of an unsafe record.
+    private struct PayloadIdentity: Equatable {
+        let device: Int32
+        let inode: UInt64
+        let size: Int64
+        let modified: timespec
+        let changed: timespec
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.device == rhs.device && lhs.inode == rhs.inode && lhs.size == rhs.size
+                && lhs.modified.tv_sec == rhs.modified.tv_sec && lhs.modified.tv_nsec == rhs.modified.tv_nsec
+                && lhs.changed.tv_sec == rhs.changed.tv_sec && lhs.changed.tv_nsec == rhs.changed.tv_nsec
+        }
+        init(url: URL) throws {
+            var info = stat()
+            guard lstat(url.path, &info) == 0,
+                  (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid(),
+                  info.st_nlink == 1, (info.st_mode & 0o077) == 0,
+                  info.st_size >= 0, info.st_size <= 64 * 1024 else {
+                throw TodayPayloadError.invalidText("payload file")
+            }
+            device = info.st_dev; inode = info.st_ino; size = info.st_size
+            modified = info.st_mtimespec; changed = info.st_ctimespec
+        }
+    }
+
     func start() {
         reload()
         installWatcherIfNeeded()
@@ -87,39 +122,56 @@ final class TodayStore: ObservableObject {
 
     func reload() {
         defer { tick() }
-        reloadBridgeStatus()
-        reloadRefreshPending()
-        guard FileManager.default.fileExists(atPath: Self.payloadURL.path) else {
+        let previousBridge = bridgeConnection
+        let previousPending = refreshPending
+        let nextBridge = readBridgeStatus()
+        let nextPending = readRefreshPending()
+        if previousBridge != nextBridge { bridgeConnection = nextBridge }
+        if previousPending != nextPending { refreshPending = nextPending }
+        guard FileManager.default.fileExists(atPath: payloadURL.path) else {
+            payloadIdentity = nil
             lastGoodPayload = nil
             latestPayloadAccepted = false
             stopFocus()
-            state = .empty
+            if state != .empty { state = .empty }
             return
         }
         do {
-            try Self.rejectSymlinks([Self.directoryURL.deletingLastPathComponent(), Self.directoryURL, Self.payloadURL])
-            let values = try Self.payloadURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
-            guard values.isSymbolicLink != true, (values.fileSize ?? 0) <= 64 * 1024 else {
-                throw TodayPayloadError.invalidText("payload file")
+            try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, payloadURL])
+            let identity = try PayloadIdentity(url: payloadURL)
+            if payloadIdentity == identity, lastGoodPayload.map({ $0.generatedAt <= clock().addingTimeInterval(300) }) ?? true {
+                if latestPayloadAccepted, !refreshPending, notice != nil { notice = nil }
+                return
             }
-            let payload = try TodayPayload.decodeValidated(from: Data(contentsOf: Self.payloadURL))
+            let data = try Data(contentsOf: payloadURL)
+            // A concurrent replacement must be retried, not accepted under the old identity.
+            guard try PayloadIdentity(url: payloadURL) == identity else {
+                throw TodayPayloadError.invalidText("payload changed while reading")
+            }
+            payloadIdentity = identity
+            payloadDecodeCount += 1
+            let payload = try TodayPayload.decodeValidated(from: data, at: clock())
             latestPayloadAccepted = true
             lastGoodPayload = payload
-            if !refreshPending { notice = nil }
-            state = .ready(payload, isStale: payload.isStale())
+            if !refreshPending, notice != nil { notice = nil }
+            let next = State.ready(payload, isStale: payload.isStale(at: clock()))
+            if state != next { state = next }
         } catch {
+            if case TodayPayloadError.invalidText("future generatedAt") = error { payloadIdentity = nil }
             latestPayloadAccepted = false
-            notice = "Latest update was rejected."
+            if notice != "Latest update was rejected." { notice = "Latest update was rejected." }
             if let lastGoodPayload {
-                state = .ready(lastGoodPayload, isStale: lastGoodPayload.isStale())
+                let next = State.ready(lastGoodPayload, isStale: lastGoodPayload.isStale(at: clock()))
+                if state != next { state = next }
             } else {
-                state = .malformed("The local Today payload is invalid.")
+                let next = State.malformed("The local Today payload is invalid.")
+                if state != next { state = next }
             }
         }
     }
 
     func requestRefresh() {
-        let now = Date()
+        let now = clock()
         guard lastRefreshRequestAt.map({ now.timeIntervalSince($0) >= 2 }) ?? true else {
             notice = "A refresh is already pending."
             return
@@ -132,16 +184,16 @@ final class TodayStore: ObservableObject {
             "source": "Boring Notch Today"
         ]
         do {
-            try Self.rejectSymlinks([Self.directoryURL.deletingLastPathComponent(), Self.directoryURL, Self.refreshRequestURL])
-            if FileManager.default.fileExists(atPath: Self.directoryURL.path) {
-                let values = try Self.directoryURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+            try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, refreshRequestURL])
+            if FileManager.default.fileExists(atPath: storageDirectory.path) {
+                let values = try storageDirectory.resourceValues(forKeys: [.isSymbolicLinkKey])
                 guard values.isSymbolicLink != true else { throw TodayPayloadError.unsafeAction("storage") }
             }
-            try FileManager.default.createDirectory(at: Self.directoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: Self.directoryURL.path)
+            try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: storageDirectory.path)
             let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
-            try data.write(to: Self.refreshRequestURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.refreshRequestURL.path)
+            try data.write(to: refreshRequestURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: refreshRequestURL.path)
             lastRefreshRequestAt = now
             refreshPending = true
             notice = "Refresh requested, waiting for an active agent."
@@ -150,33 +202,31 @@ final class TodayStore: ObservableObject {
         }
     }
 
-    private func reloadBridgeStatus() {
-        guard FileManager.default.fileExists(atPath: Self.bridgeStatusURL.path) else {
-            bridgeConnection = .disconnected
-            return
+    private func readBridgeStatus() -> TodayBridgeConnection {
+        guard FileManager.default.fileExists(atPath: bridgeStatusURL.path) else {
+            return .disconnected
         }
         do {
-            try Self.rejectSymlinks([Self.directoryURL.deletingLastPathComponent(), Self.directoryURL, Self.bridgeStatusURL])
-            let values = try Self.bridgeStatusURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
+            try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, bridgeStatusURL])
+            let values = try bridgeStatusURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
             guard values.isSymbolicLink != true, (values.fileSize ?? 0) <= 4 * 1024 else {
                 throw TodayPayloadError.invalidText("bridge status")
             }
-            bridgeConnection = try TodayBridgeStatus.decodeConnection(from: Data(contentsOf: Self.bridgeStatusURL))
+            return try TodayBridgeStatus.decodeConnection(from: Data(contentsOf: bridgeStatusURL), at: clock())
         } catch {
-            bridgeConnection = .error
+            return .error
         }
     }
 
-    private func reloadRefreshPending() {
-        guard FileManager.default.fileExists(atPath: Self.refreshRequestURL.path) else {
-            refreshPending = false
-            return
+    private func readRefreshPending() -> Bool {
+        guard FileManager.default.fileExists(atPath: refreshRequestURL.path) else {
+            return false
         }
         do {
-            try Self.rejectSymlinks([Self.directoryURL.deletingLastPathComponent(), Self.directoryURL, Self.refreshRequestURL])
-            let values = try Self.refreshRequestURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
+            try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, refreshRequestURL])
+            let values = try refreshRequestURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
             guard values.isSymbolicLink != true, (values.fileSize ?? 0) <= 4 * 1024,
-                  let object = try JSONSerialization.jsonObject(with: Data(contentsOf: Self.refreshRequestURL)) as? [String: Any],
+                  let object = try JSONSerialization.jsonObject(with: Data(contentsOf: refreshRequestURL)) as? [String: Any],
                   Set(object.keys) == Set(["schemaVersion", "id", "requestedAt", "source"]),
                   object["schemaVersion"] as? Int == 1,
                   object["source"] as? String == "Boring Notch Today",
@@ -185,9 +235,9 @@ final class TodayStore: ObservableObject {
                   ISO8601DateFormatter().date(from: requestedAt) != nil else {
                 throw TodayPayloadError.invalidText("refresh request")
             }
-            refreshPending = true
+            return true
         } catch {
-            refreshPending = false
+            return false
         }
     }
 
@@ -212,12 +262,23 @@ final class TodayStore: ObservableObject {
     }
 
     func tick() {
-        now = clock()
+        let instant = clock()
+        if let payload = lastGoodPayload, case .ready = state {
+            let next = State.ready(payload, isStale: payload.isStale(at: instant))
+            if state != next { state = next }
+        }
+        let focusTime = focus.map { $0.endsAt > now || $0.endsAt > instant } ?? false
+        let deadlineTime = latestPayloadAccepted && (lastGoodPayload.map {
+            !$0.isStale(at: instant) && !($0.deadlines ?? []).isEmpty
+        } ?? false)
+        let timeContent = focusTime || deadlineTime
+        if timeContent, now != instant { now = instant }
+        let now = instant // semantic scheduling never relies on the publication gate
         let quiet = TodayQuietHours(enabled: defaults.bool(forKey: "today.quiet.enabled"),
             startMinute: defaults.object(forKey: "today.quiet.start") as? Int ?? 1320,
             endMinute: defaults.object(forKey: "today.quiet.end") as? Int ?? 480,
             allowRequiredDeadlines: defaults.bool(forKey: "today.quiet.allowRequired"))
-        guard let payload = currentPayload else { reminders = []; return }
+        guard let payload = currentPayload else { if !reminders.isEmpty { reminders = [] }; return }
         if let focus, !payload.rows.contains(where: { $0.id == focus.rowID }) { stopFocus() }
         ledger.prune(at: now)
         let due = TodaySchedule.due(payload: payload, at: now, ledger: ledger, quiet: quiet)
@@ -226,21 +287,22 @@ final class TodayStore: ObservableObject {
             guard let row = payload.rows.first(where: { $0.id == deadline.rowID }) else { return [] }
             return deadline.reminders.map { TodayDueReminder(deadline: deadline, reminder: $0, row: row).id }
         })
-        reminders = reminders.filter { valid.contains($0.id) && !payload.isStale(at: now)
+        var nextReminders = reminders.filter { valid.contains($0.id) && !payload.isStale(at: now)
             && now <= $0.deadline.dueAt.addingTimeInterval(3600)
             && !(quiet.contains(now) && !($0.deadline.required && quiet.allowRequiredDeadlines)) }
         var changed = false
-        for item in due where !reminders.contains(where: { $0.id == item.id }) {
-            reminders.append(item)
+        for item in due where !nextReminders.contains(where: { $0.id == item.id }) {
+            nextReminders.append(item)
             ledger.delivered[item.id] = now
             ledger.snoozed.removeValue(forKey: item.id)
             changed = true
         }
         // Refresh titles/details on an existing banner without replaying its reminder.
-        reminders = reminders.map { item in
+        nextReminders = nextReminders.map { item in
             let row = payload.rows.first(where: { $0.id == item.deadline.rowID }) ?? item.row
             return TodayDueReminder(deadline: item.deadline, reminder: item.reminder, row: row)
         }
+        if reminders != nextReminders { reminders = nextReminders }
         if changed { saveLedger() }
     }
 
@@ -257,17 +319,19 @@ final class TodayStore: ObservableObject {
     }
 
     func startFocus(row: TodayRow) {
+        now = clock()
         focus = TodayFocusSession(rowID: row.id, work: row.work, endsAt: clock().addingTimeInterval(TimeInterval(TodayPresentationPreferences(defaults: defaults).focusMinutes * 60)))
         if let data = try? JSONEncoder().encode(focus) { defaults.set(data, forKey: "today.focus") }
     }
 
     func stopFocus() {
+        guard focus != nil else { return }
         focus = nil
         defaults.removeObject(forKey: "today.focus")
     }
 
     private func nearestExistingWatchURL() -> URL? {
-        var candidate = Self.directoryURL
+        var candidate = storageDirectory
         while candidate.path != "/" {
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
@@ -280,7 +344,9 @@ final class TodayStore: ObservableObject {
 
     private func installWatcherIfNeeded(force: Bool = false) {
         guard let target = nearestExistingWatchURL() else { return }
-        if !force, watcher != nil, watchedURL == target { return }
+        var info = stat()
+        let inode = lstat(target.path, &info) == 0 ? info.st_ino : nil
+        if !force, watcher != nil, watchedURL == target, watchedInode == inode { return }
         watcher?.cancel()
         watcher = nil
         watchedURL = nil
@@ -300,6 +366,7 @@ final class TodayStore: ObservableObject {
         source.setCancelHandler { close(descriptor) }
         watcher = source
         watchedURL = target
+        watchedInode = inode
         source.resume()
     }
 
@@ -309,7 +376,7 @@ final class TodayStore: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.reload()
-                let nowWatchingToday = self.watchedURL == Self.directoryURL
+                let nowWatchingToday = self.watchedURL == self.storageDirectory
                 self.installWatcherIfNeeded(force: rebind || !nowWatchingToday)
             }
         }

@@ -17,6 +17,7 @@ final class YouTubeMusicController: MediaControllerProtocol {
         bundleIdentifier: YouTubeMusicConfiguration.default.bundleIdentifier
     )
 
+    private var periodicUpdateTask: Task<Void, Never>?
     private var artworkFetchTask: Task<Void, Never>?
 
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> {
@@ -72,6 +73,7 @@ final class YouTubeMusicController: MediaControllerProtocol {
         artworkFetchTask?.cancel()
         reconnectTask?.cancel()
         appStateObserver?.cancel()
+        periodicUpdateTask?.cancel()
         updateTimer?.invalidate()
 
         if let webSocketClient {
@@ -127,10 +129,12 @@ final class YouTubeMusicController: MediaControllerProtocol {
         do {
             let token = try await authManager.authenticate()
             let response = try await httpClient.getPlaybackInfo(token: token)
+            guard !Task.isCancelled else { return }
             await updatePlaybackState(with: response)
             // Fetch like state if supported
             do {
                 let likeResp = try await httpClient.getLikeState(token: token)
+                guard !Task.isCancelled else { return }
                 var newState = playbackState
                     if let state = likeResp.state {
                         switch state.uppercased() {
@@ -393,12 +397,24 @@ final class YouTubeMusicController: MediaControllerProtocol {
 
         updateTimer = Timer.scheduledTimer(withTimeInterval: configuration.updateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                await self?.updatePlaybackInfo()
+                self?.requestPeriodicUpdate()
             }
         }
     }
 
+    // Periodic requests skip while one is pending. Commands still call the
+    // direct refresh path, so a slow fallback cannot suppress user feedback.
+    func requestPeriodicUpdate() {
+        guard periodicUpdateTask == nil else { return }
+        periodicUpdateTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.periodicUpdateTask = nil }
+            await self.updatePlaybackInfo()
+        }
+    }
+
     private func stopPeriodicUpdates() {
+        periodicUpdateTask?.cancel()
         updateTimer?.invalidate()
         updateTimer = nil
     }

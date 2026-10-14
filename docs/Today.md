@@ -208,8 +208,8 @@ O7 strings use today.focus.duration, today.presentation, today.density and
 today.reminder.prominence in UserDefaults/AppStorage with bounded effective fallback.
 Exact NSClipView offset persistence remains with range clamping after content shrinks.
 Local automated/offscreen and unsigned-build evidence, installed/native/human limits,
-and O8 handoff are in Customization.md. O7 is not installed; native restart/keyboard/
-VoiceOver acceptance remains open.
+and O8 handoff are in Customization.md. The earlier O7 source checkpoint predates the current installation in
+`CLAUDE.md`; native restart/keyboard/VoiceOver acceptance remains open.
 
 
 ## Named Today presets (O8 source, October 13)
@@ -222,4 +222,19 @@ them. Persistent one-level Restore keeps subsequent manual edits, including remo
 or invalid raw values, and consumes its record after reconciliation. Quiet means
 presentation only; active focus, reminders, quiet hours and payloads are unaffected.
 Source/test/unsigned Release passes and pending native/human gates are recorded in
-Customization.md's O8 checkpoint. The O8 candidate is not installed.
+Customization.md's O8 checkpoint. That source checkpoint predates the current
+installation recorded in `CLAUDE.md`.
+
+## Efficiency source checkpoint, October 14
+
+Today now skips unchanged plan reads/decodes using replacement-aware file metadata,
+and gates unchanged observable state/reminders/transport publications. It retains
+one-second semantic scheduling and the five-second bridge heartbeat/15-second
+fallback contracts. Untimed idle content no longer publishes a clock each second;
+focus and fresh deadline displays retain time updates. A rejected replacement keeps
+last-good cards while suppressing reminders. Scratch filesystem, clock and lifecycle
+checks and an unsigned Release build passed. The source remains uncommitted. The candidate was installed and passed its
+Applications launch check at 14:46 EDT; physical sleep/wake and battery savings
+remain OPEN. Current installed identity is owned by `CLAUDE.md`. Detailed F1–F10
+source dispositions, counts, commands and candidate identity are in
+[Battery efficiency](Battery-efficiency-2026-10-14.md#implementation-checkpoint-october-14-2026).

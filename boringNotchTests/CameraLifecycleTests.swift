@@ -18,6 +18,8 @@ private final class CameraEngineStub: CameraSessionEngine, @unchecked Sendable {
     private(set) var stopCount = 0
     private(set) var shutdownCount = 0
 
+    func clearStartHistory() { startSelections = [] }
+
     func refresh() {
         refreshCount += 1
     }
@@ -51,12 +53,20 @@ final class CameraLifecycleTests: XCTestCase {
         CameraDevice(id: "external", name: "External Camera", kind: .external)
     ]
 
+    private func makeVisibleCamera(engine: CameraEngineStub, authorizationStatus: AVAuthorizationStatus) -> CameraModel {
+        let camera = CameraModel(engine: engine, authorizationStatus: authorizationStatus)
+        camera.setPreviewDemand(UUID(), owner: "primary", visible: true)
+        return camera
+    }
+
     private func makeRunningCamera(
         engine: CameraEngineStub,
         device: CameraDevice? = nil
     ) -> CameraModel {
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         engine.send(.devices(cameras))
+        camera.startSession()
+        engine.clearStartHistory()
         engine.send(.started(
             session: AVCaptureSession(),
             device: device ?? cameras[0]
@@ -359,7 +369,7 @@ final class CameraLifecycleTests: XCTestCase {
         XCTAssertEqual(camera.state, .starting)
         XCTAssertTrue(camera.isIntendedRunning)
         // Exactly one fresh start command for the second run (the camera was
-        // made running via a .started event, so this is the only command).
+        // starts with visible demand and resets its command history).
         XCTAssertEqual(engine.startSelections, [.automatic])
         XCTAssertNil(camera.activeSession)
 
@@ -398,7 +408,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testStartingWithoutCamerasRecordsIntentForLaterRecovery() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         engine.send(.devices([]))
 
         camera.startSession()
@@ -415,7 +425,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testPermissionRequestFlowStillDefersStartUntilAuthorized() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .notDetermined)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .notDetermined)
         engine.send(.devices(cameras))
 
         camera.startSession()
@@ -435,7 +445,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testDeniedPermissionClearsTheRunningIntent() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .notDetermined)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .notDetermined)
         engine.send(.devices(cameras))
 
         camera.startSession()
@@ -452,8 +462,10 @@ final class CameraLifecycleTests: XCTestCase {
     func testStoppingTheSharedCameraRemovesPreviewAndStopsCapture() {
         let engine = CameraEngineStub()
         let session = AVCaptureSession()
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         engine.send(.devices(cameras))
+        camera.startSession()
+        engine.clearStartHistory()
         engine.send(.started(session: session, device: cameras[0]))
         XCTAssertTrue(camera.isSessionRunning)
 
@@ -470,8 +482,10 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testAReplacementFailureDoesNotLeaveAStalePreviewVisible() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         engine.send(.devices(cameras))
+        camera.startSession()
+        engine.clearStartHistory()
         engine.send(.started(session: AVCaptureSession(), device: cameras[0]))
 
         camera.selectCamera(.device("external"))
@@ -483,10 +497,12 @@ final class CameraLifecycleTests: XCTestCase {
         XCTAssertTrue(camera.isIntendedRunning)
     }
 
-    func testDisconnectMakesTheSharedCameraUnavailableWithoutAWindowOwner() {
+    func testDisconnectMakesTheSharedCameraUnavailableWithRetainedPreviewDemand() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         engine.send(.devices(cameras))
+        camera.startSession()
+        engine.clearStartHistory()
         engine.send(.started(session: AVCaptureSession(), device: cameras[0]))
 
         engine.send(.devices([]))
@@ -502,7 +518,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testRepeatedAuthorizedStatusDoesNotTriggerAnotherRefresh() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .authorized)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .authorized)
         let initialRefreshCount = engine.refreshCount
 
         engine.send(.authorization(.authorized))
@@ -514,7 +530,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testNewlyGrantedPermissionRefreshesDevicesOnce() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .notDetermined)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .notDetermined)
         let initialRefreshCount = engine.refreshCount
 
         camera.startSession()
@@ -526,7 +542,7 @@ final class CameraLifecycleTests: XCTestCase {
 
     func testGrantedPermissionStartsTheCameraAndPublishesPreview() {
         let engine = CameraEngineStub()
-        let camera = CameraModel(engine: engine, authorizationStatus: .notDetermined)
+        let camera = makeVisibleCamera(engine: engine, authorizationStatus: .notDetermined)
         engine.send(.devices(cameras))
 
         camera.startSession()

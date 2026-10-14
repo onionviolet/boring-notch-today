@@ -200,9 +200,7 @@ final class BoringViewModel: NSObject, ObservableObject {
         if SharingStateManager.shared.preventNotchClose {
             return
         }
-        // The camera is on-demand: the notch closing always ends capture.
-        // Intent clears too, so no recovery path can reopen it while closed.
-        camera.stopSession()
+        camera.closePreview(owner: screenUUID ?? "primary")
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
         self.closedNotchSize = self.notchSize
         self.notchState = .closed

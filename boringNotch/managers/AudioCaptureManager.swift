@@ -120,16 +120,32 @@ final class AudioCaptureManager: ObservableObject {
         ringBuffer.deallocate()
     }
 
-    func setLevelsConsumer(_ consumer: AudioCaptureLevelsConsumer) {
+    var visibleConsumerCount: Int {
         levelsConsumerLock.lock()
         defer { levelsConsumerLock.unlock() }
+        return levelsConsumers.allObjects.count
+    }
+
+    func setLevelsConsumer(_ consumer: AudioCaptureLevelsConsumer) {
+        levelsConsumerLock.lock()
         levelsConsumers.add(consumer)
+        levelsConsumerLock.unlock()
+        reevaluateDemand()
     }
 
     func clearLevelsConsumer(_ consumer: AudioCaptureLevelsConsumer) {
         levelsConsumerLock.lock()
-        defer { levelsConsumerLock.unlock() }
         levelsConsumers.remove(consumer)
+        levelsConsumerLock.unlock()
+        reevaluateDemand()
+    }
+
+    private func reevaluateDemand() {
+        Task { @MainActor [weak self] in
+            let music = MusicManager.shared
+            self?.evaluate(isPlaying: music.isPlaying, displayBundleID: music.bundleIdentifier,
+                captureBundleIDs: music.audioCaptureBundleIdentifiers, enabled: Defaults[.realtimeAudioWaveform])
+        }
     }
 
     func latestLevelsSnapshot() -> [Float]? {
@@ -192,7 +208,7 @@ final class AudioCaptureManager: ObservableObject {
         enabled: Bool
     ) {
         guard #available(macOS 14.2, *),
-              enabled, isPlaying,
+              enabled, isPlaying, visibleConsumerCount > 0,
               let resolvedDisplayBundleID = displayBundleID,
               !resolvedDisplayBundleID.isEmpty else {
             stopCaptureAsync()
@@ -694,7 +710,7 @@ final class AudioCaptureManager: ObservableObject {
     }
 
     private func processFFT() {
-        guard let fft else { return }
+        guard visibleConsumerCount > 0, let fft else { return }
         let n = Self.fftSize
         copyLatestSamples(count: n)
 
