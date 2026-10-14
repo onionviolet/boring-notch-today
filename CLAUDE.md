@@ -68,11 +68,12 @@ Keep these separate and never upgrade one to another: source edit, Python/Swift 
 
 ## Current state and resume point
 
-- Current installed app source is the recovered integration worktree at `/Users/weiwei/.codex/worktrees/absorb-upstream-oct09/boring-notch-today`, branch `codex/absorb-upstream-2026-10-09`. Its resolved October 9 merge was recovered from the surviving Git index, then updated with selective October 13 upstream/fork fixes and the primary checkout's newer Today deadline/focus features. D-hall remains a separate fourth tab.
-- The final unsigned Release is installed and running at `/Applications/Boring Notch.app`; executable name is now `Boring Notch`. All four tabs were checked through the installed UI. This update's temporary rollback copy was deleted after launch verification. Source is staged/uncommitted; nothing was pushed.
-- Verification: 105/105 XCTest, final focused 3/3 duration/height XCTest, 10/10 Python, MCP smoke, standalone Today/schedule/D-hall, media timing and gesture checks pass. See `docs/Upstream-integration-2026-10-13.md` for revisions, logs, executable hash and remaining hardware/signing gates.
-- Compact Today follow-up: deadline/focus/reminder status now uses two 90-point wings at the normal closed-notch height; full reminder controls stay in Today’s scroll area. Final unsigned build, installed launch and glance-to-card navigation passed. The 105-test result above predates this layout follow-up. See the follow-up section in the October 13 report.
-- The primary checkout remains on `codex/atoll-fixes` with its existing edits preserved. Use the recovered integration source for future local app builds so upstream features and D-hall are not dropped. Earlier resume notes are archived in the October 13 integration report.
+As of October 14, 2026:
+- `main` (`5018a28`, local only, **not pushed**) holds everything: the October 9 upstream/dev merge as a real two-parent merge (`8cb7662`, upstream side `dee29a6`), then O5 haptics, O6 compact glance, O7 Today preferences and O8 presets (`67c11ce`), then docs. The primary checkout at this path is on `main` and is the build source again. D-hall remains a separate fourth tab.
+- `codex/atoll-fixes` gained a snapshot commit of its old uncommitted edits; an audit on Oct 14 found every Today feature from them (reminder ledger, focus, `NSClipView` scroll keeper, deadlines, Today sizing) already in `main`. The worktree `/Users/weiwei/.codex/worktrees/absorb-upstream-oct09/boring-notch-today` (`codex/absorb-upstream-2026-10-09` at `5018a28`, behind `main` only by this CLAUDE.md update) is now redundant; it was not removed.
+- Installed: unsigned Release built from `main`, executable SHA-256 `ab9ec7394097f268631fc58db0f9e16f15e1a30a3f79b8751b7bc2644658f6e2`, launched from `/Applications/Boring Notch.app` and stayed up with no crash report; rollback copy deleted. Tabs and Settings were not visually inspected after this install.
+- Oct 14 gates from `main`: 10/10 Python, MCP smoke, standalone TodayPayload and TodaySchedule pass; Release build 0 errors (`work/main-release.log`). XCTest was not rerun on the committed tree; latest slices are in `docs/Customization.md`.
+- Open: O5 physical haptic-intensity trial (Settings → Notch → Haptic Feedback, Test single pulse at 0.20/0.45/0.70 in mixed order); signed-build actuator access; human visual acceptance of O6–O8; push to `origin`; absorbing the 35 newer `upstream/dev` commits in a separate pass.
 
 ## Codex history
 
