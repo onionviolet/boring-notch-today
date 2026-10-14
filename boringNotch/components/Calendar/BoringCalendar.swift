@@ -53,7 +53,7 @@ struct WheelPicker: View {
                             withAnimation {
                                 scrollPosition = index
                             }
-                            if Defaults[.enableHaptics] {
+                            if HapticCuePolicy.allows(.action) {
                                 haptics.toggle()
                             }
                         }
@@ -67,7 +67,7 @@ struct WheelPicker: View {
         .scrollPosition(id: $scrollPosition, anchor: .center)
         .scrollTargetBehavior(.viewAligned)  // Ensures scroll view snaps the centered view
         .safeAreaPadding(.horizontal)
-        .sensoryFeedback(.alignment, trigger: haptics)
+        .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
         .onContinuousHover { phase in
             switch phase {
             case .active:
@@ -137,7 +137,7 @@ struct WheelPicker: View {
                 }
                 let newDate = dateForItemIndex(index: newIndex, spacerNum: spacerNum)
                 selectedDate = newDate
-                if Defaults[.enableHaptics] {
+                if HapticCuePolicy.allows(.action) {
                     haptics.toggle()
                 }
             }
@@ -193,7 +193,7 @@ struct WheelPicker: View {
         let date = dateForItemIndex(index: newIndex, spacerNum: spacerNum)
         if !Calendar.current.isDate(date, inSameDayAs: selectedDate) {
             selectedDate = date
-            if Defaults[.enableHaptics] {
+            if HapticCuePolicy.allows(.action) {
                 haptics.toggle()
             }
         }
@@ -278,7 +278,7 @@ struct WeekStripPicker: View {
         .frame(height: 50)
         .clipped()  // keep the week-flip slide inside the calendar column (no bleed into music)
         .padding(.horizontal, 2)
-        .sensoryFeedback(.alignment, trigger: haptics)
+        .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
         .onContinuousHover { phase in
             switch phase {
             case .active:
@@ -369,7 +369,7 @@ struct WeekStripPicker: View {
             }
             selectedDate = newDate
         }
-        if Defaults[.enableHaptics] {
+        if HapticCuePolicy.allows(.action) {
             haptics.toggle()
         }
     }
@@ -383,7 +383,7 @@ struct WeekStripPicker: View {
             displayedWeekStart = newStart
             selectedDate = newSelection
         }
-        if Defaults[.enableHaptics] {
+        if HapticCuePolicy.allows(.action) {
             haptics.toggle()
         }
     }
@@ -392,7 +392,7 @@ struct WeekStripPicker: View {
         withAnimation {
             selectedDate = date
         }
-        if Defaults[.enableHaptics] {
+        if HapticCuePolicy.allows(.action) {
             haptics.toggle()
         }
     }

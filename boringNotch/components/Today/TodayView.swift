@@ -2,7 +2,23 @@ import AppKit
 import SwiftUI
 
 struct TodayView: View {
-    @StateObject private var store = TodayStore.shared
+    @ObservedObject var store = TodayStore.shared
+    var startsStore = true
+    var previewPreferences: TodayPresentationPreferences? = nil
+    var scrollDefaults: UserDefaults = .standard
+    @AppStorage("today.focus.duration") var focusDuration = "25"
+    @AppStorage("today.presentation") var presentation = "all"
+    @AppStorage("today.density") var density = "current"
+    @AppStorage("today.reminder.prominence") var prominence = "standard"
+    @State private var revealedRows: Set<String> = []
+
+    private var preferences: TodayPresentationPreferences {
+        previewPreferences ?? .init(duration: focusDuration, presentation: presentation, density: density, prominence: prominence)
+    }
+    private var retainedRows: Set<String> {
+        revealedRows.union(store.focus.map { [$0.rowID] } ?? [])
+            .union(store.reminders.map { $0.row.id }).union(store.selectedRowID.map { [$0] } ?? [])
+    }
     @State private var actionMessage: String?
     @State private var expandedRows: Set<String> = []
     @State private var showQuietSettings = false
@@ -26,7 +42,7 @@ struct TodayView: View {
         }
         // Fit the space below the notch header so the scroll viewport stays inside the panel.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { store.start() }
+        .onAppear { if startsStore { store.start() } }
     }
 
     private var bridgeLabel: String {
@@ -72,7 +88,9 @@ struct TodayView: View {
     }
 
     private func payloadView(_ payload: TodayPayload, isStale: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let visibleRows = preferences.rows(in: payload, retained: retainedRows)
+        let hiddenCount = payload.rows.count - visibleRows.count
+        return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Today").font(.headline)
@@ -104,17 +122,25 @@ struct TodayView: View {
             Divider()
             ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: preferences.compact ? 5 : 9) {
                     if !store.reminders.isEmpty {
-                        TodayReminderBanner { rowID in
+                        TodayReminderBanner(store: store, subtle: preferences.subtleReminders) { rowID in
                             store.selectedRowID = rowID
                             store.dismissReminders()
                         }
                     }
+                    if preferences.requiredOnly {
+                        Text(hiddenCount > 0 ? "Required-only · \(hiddenCount) optional \(hiddenCount == 1 ? "row hidden" : "rows hidden")" : "Required-only · work without deadlines and active targets kept")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if visibleRows.isEmpty && !payload.rows.isEmpty {
+                        Text("No work matches Required-only. Switch to All to see optional deadline work.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
                     if payload.rows.isEmpty {
                         Text("No ranked work remains. Keep the win small.").font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        ForEach(Array(payload.rows.enumerated()), id: \.element.id) { index, row in
+                        ForEach(Array(payload.rows.enumerated()).filter { visibleRows.contains($0.element) }, id: \.element.id) { index, row in
                             DisclosureGroup(isExpanded: Binding(
                                 get: { expandedRows.contains(row.id) },
                                 set: { if $0 { expandedRows.insert(row.id) } else { expandedRows.remove(row.id) } }
@@ -124,14 +150,20 @@ struct TodayView: View {
                                     labeled("Method", row.studyMethod)
                                     labeled("Why now", row.whyNow)
                                     labeled("Done", row.doneWhen)
-                                    if let deadline = payload.deadlines?.first(where: { $0.rowID == row.id }) {
+                                    if preferences.requiredOnly && (payload.deadlines ?? []).contains(where: { $0.rowID == row.id }) && !(payload.deadlines ?? []).contains(where: { $0.rowID == row.id && $0.required }) && retainedRows.contains(row.id) {
+                                        Text("Optional work retained for focus, reminder or navigation")
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                    ForEach(preferences.deadlines(for: row.id, in: payload,
+                                        retainedRows: revealedRows.union(store.focus.map { [$0.rowID] } ?? []),
+                                        reminderIDs: Set(store.reminders.map { $0.deadline.id }))) { deadline in
                                         Text("\(deadline.required ? "Required" : "Optional") · Due \(deadline.dueAt.formatted(date: .abbreviated, time: .shortened)) · \(TodaySchedule.countdown(to: deadline.dueAt, at: store.now))")
                                             .font(.caption).foregroundStyle(.orange)
                                         if let action = payload.actions.first(where: { $0.id == deadline.actionID }) {
                                             Button("Open submission site") { open(action) }.buttonStyle(.bordered)
                                         }
                                     }
-                                    Button("Focus for 25 minutes") { store.startFocus(row: row) }.buttonStyle(.bordered)
+                                    Button(preferences.focusActionLabel) { store.startFocus(row: row) }.buttonStyle(.bordered)
                                     Text(row.basis.rawValue).font(.caption2).foregroundStyle(.secondary)
                                 }.padding(.top, 4)
                             } label: {
@@ -146,7 +178,7 @@ struct TodayView: View {
                                         .frame(maxWidth: 150, alignment: .trailing)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
-                            }.padding(.vertical, 2).id(row.id)
+                            }.padding(.vertical, preferences.compact ? 0 : 2).id(row.id)
                         }
                     }
                     if let anki = payload.anki {
@@ -166,17 +198,30 @@ struct TodayView: View {
                     if let notice = store.notice { Text(notice).font(.caption2).foregroundStyle(.orange) }
                     if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
                 }
-                .padding(14)
-                .background(TodayScrollPositionKeeper(defaultsKey: "today.scrollOffset"))
+                .padding(preferences.compact ? 10 : 14)
+                .background(TodayScrollPositionKeeper(defaultsKey: "today.scrollOffset", defaults: scrollDefaults))
             }
             .frame(maxHeight: .infinity)
             .onAppear {
-                if let id = store.selectedRowID { expandedRows.insert(id); proxy.scrollTo(id, anchor: .top); store.selectedRowID = nil }
+                revealSelection(store.selectedRowID, proxy: proxy)
             }
+            .onChange(of: preferences.requiredOnly) { _, _ in revealedRows = [] }
+            .onChange(of: payload) { _, _ in revealedRows = [] }
             .onChange(of: store.selectedRowID) { _, id in
-                if let id { expandedRows.insert(id); proxy.scrollTo(id, anchor: .top); store.selectedRowID = nil }
+                revealSelection(id, proxy: proxy)
             }
             }
+        }
+    }
+
+    private func revealSelection(_ id: String?, proxy: ScrollViewProxy) {
+        guard let id else { return }
+        revealedRows.insert(id)
+        expandedRows.insert(id)
+        // Let the retained row enter layout before scrolling and clearing navigation.
+        DispatchQueue.main.async {
+            proxy.scrollTo(id, anchor: .top)
+            if store.selectedRowID == id { store.selectedRowID = nil }
         }
     }
 
@@ -220,10 +265,11 @@ struct TodayView: View {
     }
 }
 
-private struct TodayScrollPositionKeeper: NSViewRepresentable {
+struct TodayScrollPositionKeeper: NSViewRepresentable {
     let defaultsKey: String
+    var defaults: UserDefaults = .standard
 
-    func makeCoordinator() -> Coordinator { Coordinator(defaultsKey: defaultsKey) }
+    func makeCoordinator() -> Coordinator { Coordinator(defaultsKey: defaultsKey, defaults: defaults) }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
@@ -244,18 +290,25 @@ private struct TodayScrollPositionKeeper: NSViewRepresentable {
         private weak var scrollView: NSScrollView?
         private var boundsObserver: NSObjectProtocol?
 
-        init(defaultsKey: String) {
+        private let defaults: UserDefaults
+        init(defaultsKey: String, defaults: UserDefaults = .standard) {
             self.defaultsKey = defaultsKey
+            self.defaults = defaults
         }
 
         func attach(to view: NSView) {
-            guard let enclosingScrollView = enclosingScrollView(for: view), scrollView !== enclosingScrollView else { return }
+            guard let enclosingScrollView = enclosingScrollView(for: view) else { return }
+            if scrollView === enclosingScrollView {
+                clampOffset(in: enclosingScrollView)
+                return
+            }
             detach()
             scrollView = enclosingScrollView
 
             let clipView = enclosingScrollView.contentView
-            if let savedOffset = UserDefaults.standard.object(forKey: defaultsKey) as? NSNumber {
-                clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: savedOffset.doubleValue))
+            if let savedOffset = defaults.object(forKey: defaultsKey) as? NSNumber {
+                clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x,
+                    y: clamped(savedOffset.doubleValue, in: enclosingScrollView)))
                 enclosingScrollView.reflectScrolledClipView(clipView)
             }
             clipView.postsBoundsChangedNotifications = true
@@ -263,15 +316,29 @@ private struct TodayScrollPositionKeeper: NSViewRepresentable {
                 forName: NSView.boundsDidChangeNotification,
                 object: clipView,
                 queue: .main
-            ) { [defaultsKey] notification in
+            ) { [defaultsKey, defaults] notification in
                 guard let clipView = notification.object as? NSClipView else { return }
-                UserDefaults.standard.set(clipView.bounds.origin.y, forKey: defaultsKey)
+                defaults.set(clipView.bounds.origin.y, forKey: defaultsKey)
+            }
+        }
+
+        private func clamped(_ offset: CGFloat, in scroll: NSScrollView) -> CGFloat {
+            let maximum = max(0, (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height)
+            return min(max(0, offset.isFinite ? offset : 0), maximum)
+        }
+
+        private func clampOffset(in scroll: NSScrollView) {
+            let clip = scroll.contentView
+            let offset = clamped(clip.bounds.origin.y, in: scroll)
+            if offset != clip.bounds.origin.y {
+                clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: offset))
+                scroll.reflectScrolledClipView(clip)
             }
         }
 
         func detach() {
             if let scrollView {
-                UserDefaults.standard.set(scrollView.contentView.bounds.origin.y, forKey: defaultsKey)
+                defaults.set(scrollView.contentView.bounds.origin.y, forKey: defaultsKey)
             }
             if let boundsObserver {
                 NotificationCenter.default.removeObserver(boundsObserver)
@@ -294,6 +361,7 @@ private struct TodayScrollPositionKeeper: NSViewRepresentable {
 
 struct TodayReminderBanner: View {
     @ObservedObject var store = TodayStore.shared
+    var subtle = false
     let openToday: (String) -> Void
 
     private var grouped: [TodayDueReminder] {
@@ -303,12 +371,12 @@ struct TodayReminderBanner: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: subtle ? 3 : 5) {
             ForEach(grouped) { item in
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(item.deadline.required ? "Required" : "Optional"): \(item.row.work)")
-                            .font(.caption.weight(.semibold)).lineLimit(1).help(item.row.work)
+                            .font(.caption.weight(subtle ? .regular : .semibold)).lineLimit(1).help(item.row.work)
                         Text(item.deadline.dueAt <= store.now ? "Deadline passed · \(item.deadline.dueAt.formatted(date: .omitted, time: .shortened))" : "Due \(item.deadline.dueAt.formatted(date: .abbreviated, time: .shortened))")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -328,7 +396,7 @@ struct TodayReminderBanner: View {
                 Button("Snooze 10 min") { store.snoozeReminders() }
                 Button("Dismiss") { store.dismissReminders() }
             }
-        }.buttonStyle(.bordered).padding(10).frame(width: 580, alignment: .leading)
+        }.buttonStyle(.bordered).padding(subtle ? 6 : 10).frame(width: 580, alignment: .leading)
     }
 
     private func source(for item: TodayDueReminder) -> TodayAction? {
@@ -366,42 +434,49 @@ private struct TodayQuietSettings: View {
 
 /// A glance occupies only the wings alongside the hardware notch, never a lower banner.
 struct TodayNotchGlance: View {
-    @ObservedObject var store = TodayStore.shared
+    let presentation: TodayGlancePresentation
     let notchWidth: CGFloat
     let height: CGFloat
     let openToday: (String) -> Void
 
-    private var reminder: TodayDueReminder? { store.reminders.first }
-    private var rowID: String? { reminder?.row.id ?? store.focus?.rowID ?? store.upcomingDeadline?.rowID }
-    private var title: String { reminder?.row.work ?? store.focus?.work ?? store.upcomingWork ?? "Today" }
-    private var status: String {
-        if reminder != nil { return "Reminder" }
-        if let focus = store.focus { return focus.endsAt <= store.now ? "Focus done" : store.focusRemaining ?? "Focus" }
-        if let due = store.upcomingDeadline { return TodaySchedule.countdown(to: due.dueAt, at: store.now).replacingOccurrences(of: " left", with: "") }
-        return "Today"
+    // Use the same font for measurement and rendering; reserve one countdown bucket
+    // across ticks so digits and unit transitions never make the right wing jitter.
+    static let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+    static func textWidth(_ text: String, monospaced: Bool = false) -> CGFloat {
+        let font = monospaced
+            ? NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+            : Self.font
+        return (text as NSString).size(withAttributes: [.font: font]).width
+    }
+    static func geometry(label: String, cap: CGFloat, outerPadding: CGFloat) -> TodayGlanceGeometry {
+        TodayGlanceGeometry(leftTextWidth: textWidth(label),
+            rightTextWidth: ["99m", "99h", "999d+", "Done", "Alert"].map { textWidth($0, monospaced: true) }.max() ?? 0,
+            cap: cap, outerPadding: outerPadding)
     }
 
     var body: some View {
-        Button {
-            if let rowID { openToday(rowID) }
-        } label: {
+        Button { openToday(presentation.rowID) } label: {
             HStack(spacing: 0) {
-                Text(title)
-                    .frame(width: 90, alignment: .leading)
-                Color.clear.frame(width: notchWidth + 10)
-                Text(status)
+                Text(presentation.label)
+                    .padding(.horizontal, 2)
+                    .frame(width: presentation.geometry.leftWidth, alignment: .leading)
+                    .clipped()
+                Color.clear.frame(width: notchWidth)
+                Text(presentation.status)
                     .monospacedDigit()
-                    .foregroundStyle(reminder != nil ? .orange : .secondary)
-                    .frame(width: 90, alignment: .trailing)
+                    .foregroundStyle(presentation.isReminder ? .orange : .secondary)
+                    .padding(.horizontal, 2)
+                    .frame(width: presentation.geometry.rightWidth, alignment: .trailing)
+                    .clipped()
             }
-            .font(.caption.weight(.medium))
+            .font(Font(Self.font))
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(height: height)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(title + " · " + status + ". Open Today for details.")
-        .accessibilityLabel(title + ", " + status + ", open Today")
+        .help(presentation.title + " · " + presentation.detail + ". Open Today for details.")
+        .accessibilityLabel(presentation.title + ", " + presentation.detail + ", open Today")
     }
 }

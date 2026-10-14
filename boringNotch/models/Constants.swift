@@ -404,6 +404,11 @@ enum PreferenceCompatibility {
 }
 
 extension Defaults.Keys {
+    static let todayGlanceVisibility = Key<String>("today.glance.visibility", default: "automatic")
+    static let todayGlanceLabel = Key<String>("today.glance.label", default: "compact")
+    static let todayGlanceWidth = Key<String>("today.glance.width", default: "compact")
+    static let todayGlanceHorizon = Key<String>("today.glance.horizon", default: "all")
+
     // MARK: General
     static let appLanguage = Key<AppLanguage>("appLanguage", default: .system)
     static let menubarIcon = Key<Bool>("menubarIcon", default: true)
@@ -421,6 +426,9 @@ extension Defaults.Keys {
     static let enableOpeningAnimation = Key<Bool>("enableOpeningAnimation", default: true)
     static let animationSpeedMultiplier = Key<Double>("animationSpeedMultiplier", default: 1.0)
     static let enableHaptics = Key<Bool>("enableHaptics", default: true)
+    static let hapticHover = Key<Bool>("hapticHover", default: true)
+    static let hapticActions = Key<Bool>("hapticActions", default: true)
+    static let experimentalHapticStrength = Key<String>("experimentalHapticStrength", default: "0.2")
     static let openNotchOnHover = Key<Bool>("openNotchOnHover", default: true)
     static let extendHoverArea = Key<Bool>("extendHoverArea", default: false)
     static let notchHeightMode = Key<WindowHeightMode>(

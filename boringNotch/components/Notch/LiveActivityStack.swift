@@ -88,14 +88,14 @@ struct LiveActivityStack<Content: View>: View {
                     move(by: value.translation.width < 0 ? 1 : -1)
                 }
         )
-        .sensoryFeedback(.alignment, trigger: haptics)
+        .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
     }
 
     private func move(by delta: Int) {
         let next = clampedIndex + delta
         guard items.indices.contains(next) else { return }
         withAnimation(.smooth(duration: 0.3)) { index = next }
-        if Defaults[.enableHaptics] { haptics.toggle() }
+        if HapticCuePolicy.allows(.action) { haptics.toggle() }
     }
 }
 

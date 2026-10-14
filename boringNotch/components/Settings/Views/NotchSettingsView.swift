@@ -11,6 +11,20 @@ import SwiftUI
 struct NotchSettingsView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
 
+    @AppStorage("today.focus.duration") var todayFocusDuration = "25"
+    @AppStorage("today.presentation") var todayPresentation = "all"
+    @AppStorage("today.density") var todayDensity = "current"
+    @AppStorage("today.reminder.prominence") var todayReminderProminence = "standard"
+
+    @Default(.todayGlanceVisibility) var todayGlanceVisibility
+    @Default(.todayGlanceLabel) var todayGlanceLabel
+    @Default(.todayGlanceWidth) var todayGlanceWidth
+    @Default(.todayGlanceHorizon) var todayGlanceHorizon
+
+    @Default(.enableHaptics) var enableHaptics
+    @Default(.experimentalHapticStrength) var experimentalHapticStrength
+    @StateObject private var hapticExperiment = HapticExperiment()
+
     @Default(.gestureSensitivity) var gestureSensitivity
     @Default(.minimumHoverDuration) var minimumHoverDuration
     @Default(.nonNotchHeight) var nonNotchHeight
@@ -25,7 +39,11 @@ struct NotchSettingsView: View {
     var body: some View {
         Form {
             sizingSection
+            glanceSection
+            todaySection
+            TodayPresetSettingsView(store: TodayPresetStore())
             behaviorSection
+            hapticSection
             gesturesSection
             windowSection
         }
@@ -37,6 +55,92 @@ struct NotchSettingsView: View {
                 enableGestures = true
             }
         }
+    }
+
+    private var todaySection: some View {
+        Section("Today Presentation") {
+            Picker("New focus sessions", selection: glanceBinding($todayFocusDuration, allowed: ["15", "25", "45", "60"], fallback: "25")) {
+                ForEach(TodayPresentationPreferences.durations, id: \.self) { minutes in
+                    Text("\(minutes) min").tag(String(minutes))
+                }
+            }
+            Picker("Work shown", selection: glanceBinding($todayPresentation, allowed: ["all", "required"], fallback: "all")) {
+                Text("All").tag("all")
+                Text("Required-only").tag("required")
+            }
+            Picker("Text density", selection: glanceBinding($todayDensity, allowed: ["current", "compact"], fallback: "current")) {
+                Text("Current").tag("current")
+                Text("Compact").tag("compact")
+            }
+            Picker("In-scroll reminders", selection: glanceBinding($todayReminderProminence, allowed: ["standard", "subtle"], fallback: "standard")) {
+                Text("Standard").tag("standard")
+                Text("Subtle").tag("subtle")
+            }
+            Text("Focus duration applies to new sessions. Required-only hides optional deadline work but keeps work without deadlines and active targets. Subtle keeps every reminder action.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var glanceSection: some View {
+        Section("Closed Notch Glance") {
+            Picker("Today glance", selection: glanceBinding($todayGlanceVisibility, allowed: ["automatic", "hidden"], fallback: "automatic")) {
+                Text("Automatic").tag("automatic")
+                Text("Hidden").tag("hidden")
+            }
+            Picker("Label", selection: glanceBinding($todayGlanceLabel, allowed: ["compact", "full"], fallback: "compact")) {
+                Text("Compact").tag("compact")
+                Text("Full").tag("full")
+            }
+            Picker("Side width limit", selection: glanceBinding($todayGlanceWidth, allowed: ["compact", "balanced"], fallback: "compact")) {
+                Text("Compact").tag("compact")
+                Text("Balanced").tag("balanced")
+            }
+            Picker("Upcoming deadlines", selection: glanceBinding($todayGlanceHorizon, allowed: ["hour", "sixHours", "day", "all"], fallback: "all")) {
+                Text("1h").tag("hour")
+                Text("6h").tag("sixHours")
+                Text("24h").tag("day")
+                Text("All").tag("all")
+            }
+            Text("Hidden keeps reminders and focus details in Today. The horizon limits routine countdowns only. Full labels still fit the selected width limit.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func glanceBinding(_ value: Binding<String>, allowed: [String], fallback: String) -> Binding<String> {
+        Binding(get: { allowed.contains(value.wrappedValue) ? value.wrappedValue : fallback },
+                set: { value.wrappedValue = $0 })
+    }
+
+    private var hapticSection: some View {
+        Section("Haptic Feedback") {
+            Defaults.Toggle(key: .enableHaptics) { Text("Enable haptic feedback") }
+            Defaults.Toggle(key: .hapticHover) { Text("Hover cues") }.disabled(!enableHaptics)
+            Defaults.Toggle(key: .hapticActions) { Text("Action cues") }.disabled(!enableHaptics)
+            Text("Actions include notch and media gestures, activity selection and calendar navigation.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Experimental trackpad-strength test").font(.headline)
+            if hapticExperiment.available {
+                Picker("Requested strength", selection: Binding(
+                    get: { HapticStrength.selection(experimentalHapticStrength) },
+                    set: { experimentalHapticStrength = $0 }
+                )) {
+                    Text("Off").tag("off")
+                    Text("0.20").tag("0.2")
+                    Text("0.45").tag("0.45")
+                    Text("0.70").tag("0.7")
+                }.disabled(!enableHaptics)
+                Button("Test single pulse") {
+                    hapticExperiment.test(masterEnabled: Defaults[.enableHaptics],
+                        requestedStrength: HapticStrength.requested(Defaults[.experimentalHapticStrength]))
+                }.disabled(!enableHaptics)
+                Text("These are requested actuator values. Physical intensity is unverified. Only Test requests a pulse.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(hapticExperiment.status).font(.caption).foregroundStyle(.secondary)
+            Button("Check availability") { hapticExperiment.checkAvailability() }
+                .help("Recheck a reconnected trackpad without sending a pulse.")
+        }
+        .task { hapticExperiment.checkAvailability() }
     }
 
     private var sizingSection: some View {
@@ -126,9 +230,6 @@ struct NotchSettingsView: View {
         Section {
             Defaults.Toggle(key: .openNotchOnHover) {
                 Text("Open notch on hover")
-            }
-            Defaults.Toggle(key: .enableHaptics) {
-                Text("Enable haptic feedback")
             }
             Toggle("Remember last tab", isOn: $coordinator.openLastTabByDefault)
             if openNotchOnHover {

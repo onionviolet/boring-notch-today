@@ -27,10 +27,21 @@ final class TodayStore: ObservableObject {
     private var latestPayloadAccepted = false
     private var lastRefreshRequestAt: Date?
 
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: "today.reminderLedger"),
+    private let defaults: UserDefaults
+    private let clock: () -> Date
+
+    init(defaults: UserDefaults = .standard, clock: @escaping () -> Date = Date.init, initialPayload: TodayPayload? = nil) {
+        self.defaults = defaults
+        self.clock = clock
+        now = clock()
+        if let initialPayload {
+            lastGoodPayload = initialPayload
+            latestPayloadAccepted = true
+            state = .ready(initialPayload, isStale: initialPayload.isStale(at: now))
+        }
+        if let data = defaults.data(forKey: "today.reminderLedger"),
            let saved = try? JSONDecoder().decode(TodayReminderLedger.self, from: data) { ledger = saved }
-        if let data = UserDefaults.standard.data(forKey: "today.focus"),
+        if let data = defaults.data(forKey: "today.focus"),
            let saved = try? JSONDecoder().decode(TodayFocusSession.self, from: data) { focus = saved }
     }
 
@@ -201,8 +212,7 @@ final class TodayStore: ObservableObject {
     }
 
     func tick() {
-        now = Date()
-        let defaults = UserDefaults.standard
+        now = clock()
         let quiet = TodayQuietHours(enabled: defaults.bool(forKey: "today.quiet.enabled"),
             startMinute: defaults.object(forKey: "today.quiet.start") as? Int ?? 1320,
             endMinute: defaults.object(forKey: "today.quiet.end") as? Int ?? 480,
@@ -243,17 +253,17 @@ final class TodayStore: ObservableObject {
     }
 
     private func saveLedger() {
-        if let data = try? JSONEncoder().encode(ledger) { UserDefaults.standard.set(data, forKey: "today.reminderLedger") }
+        if let data = try? JSONEncoder().encode(ledger) { defaults.set(data, forKey: "today.reminderLedger") }
     }
 
     func startFocus(row: TodayRow) {
-        focus = TodayFocusSession(rowID: row.id, work: row.work, endsAt: Date().addingTimeInterval(25 * 60))
-        if let data = try? JSONEncoder().encode(focus) { UserDefaults.standard.set(data, forKey: "today.focus") }
+        focus = TodayFocusSession(rowID: row.id, work: row.work, endsAt: clock().addingTimeInterval(TimeInterval(TodayPresentationPreferences(defaults: defaults).focusMinutes * 60)))
+        if let data = try? JSONEncoder().encode(focus) { defaults.set(data, forKey: "today.focus") }
     }
 
     func stopFocus() {
         focus = nil
-        UserDefaults.standard.removeObject(forKey: "today.focus")
+        defaults.removeObject(forKey: "today.focus")
     }
 
     private func nearestExistingWatchURL() -> URL? {

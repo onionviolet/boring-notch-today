@@ -39,6 +39,10 @@ struct ContentView: View {
     @Namespace var albumArtNamespace
 
     @Default(.showNotHumanFace) var showNotHumanFace
+    @Default(.todayGlanceVisibility) var todayGlanceVisibility
+    @Default(.todayGlanceLabel) var todayGlanceLabel
+    @Default(.todayGlanceWidth) var todayGlanceWidth
+    @Default(.todayGlanceHorizon) var todayGlanceHorizon
 
     // Use standardized animations from StandardAnimations enum
     private let animationSpring = StandardAnimations.interactive
@@ -159,6 +163,7 @@ struct ContentView: View {
         case hello
         case nowPlayingFallback
         case batteryStatus
+        case today(TodayGlancePresentation)
         case osd(SneakContentType)
         case activities([LiveActivityItem])
         case face
@@ -176,6 +181,7 @@ struct ContentView: View {
         if coordinator.shouldShowSneakPeek(on: vm.screenUUID) {
             return .osd(coordinator.sneakPeekState(for: vm.screenUUID).type)
         }
+        if let glance = todayGlancePresentation { return .today(glance) }
         if !liveActivities.isEmpty, !vm.hideOnClosed {
             return .activities(liveActivities)
         }
@@ -197,8 +203,8 @@ struct ContentView: View {
         } else if coordinator.expandingView.type == .battery && coordinator.expandingView.show
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications] {
             chinWidth = 640
-        } else if shouldShowTodayGlance {
-            chinWidth += 190
+        } else if case .today(let glance) = closedNotchContent {
+            chinWidth = glance.geometry.visibleWidth(notchWidth: vm.closedNotchSize.width)
         } else if vm.notchState == .closed, !vm.hideOnClosed, let activity = selectedActivity {
             // Sized for whichever activity is actually on top, not for
             // whichever happens to exist — otherwise swiping to music while a
@@ -225,12 +231,45 @@ struct ContentView: View {
         return chinWidth
     }
 
-    private var shouldShowTodayGlance: Bool {
-        guard vm.notchState == .closed, !vm.hideOnClosed, !isNotchHeightZero,
-              notificationManager.activeNotification == nil else { return false }
-        // Routine deadlines use idle space; due reminders and active focus take priority.
-        return !todayStore.reminders.isEmpty || todayStore.focus != nil
-            || (!musicManager.isPlaying && !showingInlineMusicPeek && todayStore.upcomingDeadline != nil)
+    private var todayGlancePresentation: TodayGlancePresentation? {
+        let preferences = TodayGlancePreferences(visibility: todayGlanceVisibility,
+            label: todayGlanceLabel, width: todayGlanceWidth, horizon: todayGlanceHorizon)
+        let blocked = vm.notchState != .closed || vm.hideOnClosed || isNotchHeightZero
+            || coordinator.helloAnimationRunning || nowPlayingFallbackNoticeActive
+            || (coordinator.expandingView.show && coordinator.expandingView.type == .battery && Defaults[.showPowerStatusNotifications])
+            || coordinator.shouldShowSneakPeek(on: vm.screenUUID)
+            || notificationManager.activeNotification != nil
+        guard let activity = preferences.activity(reminder: !todayStore.reminders.isEmpty,
+            focus: todayStore.focus != nil, dueAt: todayStore.upcomingDeadline?.dueAt,
+            at: todayStore.now, music: musicManager.isPlaying || showingInlineMusicPeek,
+            blocked: blocked) else { return nil }
+        let rowID: String
+        let title: String
+        let status: String
+        let detail: String
+        let isReminder: Bool
+        if activity == .reminder, let reminder = todayStore.reminders.first {
+            rowID = reminder.row.id; title = reminder.row.work
+            status = "Alert"; detail = "Reminder"; isReminder = true
+        } else if activity == .focus, let focus = todayStore.focus {
+            rowID = focus.rowID; title = focus.work
+            status = TodayGlancePresentation.countdown(to: focus.endsAt, at: todayStore.now)
+            detail = "Focus · " + (todayStore.focusRemaining ?? "Done"); isReminder = false
+        } else if activity == .deadline, let due = todayStore.upcomingDeadline {
+            rowID = due.rowID; title = todayStore.upcomingWork ?? "Today"
+            status = TodayGlancePresentation.countdown(to: due.dueAt, at: todayStore.now)
+            detail = TodaySchedule.countdown(to: due.dueAt, at: todayStore.now); isReminder = false
+        } else { return nil }
+        let label = preferences.displayTitle(title)
+        return TodayGlancePresentation(rowID: rowID, title: title, label: label,
+            status: status, detail: detail, isReminder: isReminder,
+            geometry: TodayNotchGlance.geometry(label: label, cap: preferences.width.cap,
+                outerPadding: cornerRadiusInsets.closed.bottom))
+    }
+
+    private var closedContentOffset: CGFloat {
+        if case .today(let glance) = closedNotchContent { return glance.geometry.centerOffset }
+        return 0
     }
 
     private var shouldDisplayNowPlayingFallbackNotice: Bool {
@@ -318,6 +357,10 @@ struct ContentView: View {
                     }
                     .onTapGesture {
                         if vm.notchState == .closed && !shouldDisplayNowPlayingFallbackNotice {
+                            if case .today(let glance) = closedNotchContent {
+                                todayStore.selectedRowID = glance.rowID
+                                coordinator.currentView = .today
+                            }
                             doOpen()
                         }
                     }
@@ -360,7 +403,7 @@ struct ContentView: View {
                     .onChange(of: vm.isPopoverActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
-                    .sensoryFeedback(.alignment, trigger: haptics)
+                    .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
                     .contextMenu {
                         Button("Settings") {
                             DispatchQueue.main.async {
@@ -374,10 +417,12 @@ struct ContentView: View {
                         //                    }
                         //                    .keyboardShortcut("E", modifiers: .command)
                     }
+                    .offset(x: closedContentOffset)
                 if vm.chinHeight > 0 {
                     Rectangle()
                         .fill(Color.black.opacity(0.01))
                         .frame(width: computedChinWidth, height: vm.chinHeight)
+                        .offset(x: closedContentOffset)
                 }
             }
         }
@@ -458,8 +503,8 @@ struct ContentView: View {
                               gestureProgress: $gestureProgress
                           )
                               .transition(.opacity)
-                      } else if shouldShowTodayGlance {
-                          TodayNotchGlance(notchWidth: vm.closedNotchSize.width, height: displayClosedNotchHeight) { rowID in
+                      } else if case .today(let glance) = closedNotchContent {
+                          TodayNotchGlance(presentation: glance, notchWidth: vm.closedNotchSize.width, height: displayClosedNotchHeight) { rowID in
                               todayStore.selectedRowID = rowID
                               coordinator.currentView = .today
                               doOpen()
@@ -867,7 +912,7 @@ extension ContentView {
                 notificationManager.holdActive()
             }
 
-            if vm.notchState == .closed && Defaults[.enableHaptics] {
+            if vm.notchState == .closed && HapticCuePolicy.allows(.hover) {
                 haptics.toggle()
             }
 
@@ -927,7 +972,7 @@ extension ContentView {
         }
 
         if translation > Defaults[.gestureSensitivity] {
-            if Defaults[.enableHaptics] {
+            if HapticCuePolicy.allows(.action) {
                 haptics.toggle()
             }
             withAnimation(animationSpring) {
@@ -961,7 +1006,7 @@ extension ContentView {
                 vm.close()
             }
 
-            if Defaults[.enableHaptics] {
+            if HapticCuePolicy.allows(.action) {
                 haptics.toggle()
             }
         }
@@ -1000,7 +1045,7 @@ extension ContentView {
         triggerHorizontalMediaFeedback(feedback)
         action()
 
-        if Defaults[.enableHaptics] {
+        if HapticCuePolicy.allows(.action) {
             haptics.toggle()
         }
     }
