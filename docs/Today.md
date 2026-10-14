@@ -147,7 +147,7 @@ Saved October 12, 2026 and implemented alongside timed banners. These controls c
 | O1 | Deadline countdown | Compact countdown beside the hardware notch when music is not playing. Required work is ahead of optional work. Click to open its Today card. Focus sessions and reminders take display priority. | Use explicit deadline timestamps; handle expired, changed and stale deadlines without implying completion. |
 | O2 | Submission checkpoint | Before cutoff, remind the user to check all required files and the final receipt, with a button to open the submission site. | Opening the site or dismissing the checkpoint never counts as submission or completion. |
 | O3 | Wake-up catch-up | After sleep or app restart, combine missed reminders into one useful banner instead of replaying each one. | Coalesce reminders and avoid duplicates; distinguish an upcoming deadline from one already passed. |
-| O4 | Per-task focus timer | Start a 25-minute work session from a Today card; show task and remaining time in Today and in compact wings beside the closed hardware notch. Stop/Clear controls are local. End time survives restart and sleep; a finished session stays visible until cleared. A removed row cancels its session. | Timer state is local session state; finishing a timer never marks the vault task complete. |
+| O4 | Per-task focus timer | Start a work session from a Today card using the selected new-session duration (25 minutes by default); show task and remaining time in Today and in compact wings beside the closed hardware notch. Stop/Clear controls are local. End time survives restart and sleep; a finished session stays visible until cleared. A removed row cancels its session. | Timer state is local session state; finishing a timer never marks the vault task complete. |
 | O5 | Quiet hours and urgency | Suppress routine nudges during class or recovery, while allowing explicitly chosen hard-deadline alerts through. | Use the moon button in Today to enable quiet hours, choose From/Until in 30-minute increments, and opt into required deadline interruptions. Equal times suppress routine alerts all day. |
 
 ## Action boundary
@@ -183,3 +183,43 @@ Keep `upstream` pointed at `https://github.com/TheBoredTeam/boring.notch.git`. B
 The notch layout anchors its content at the top. Today receives the panel height
 minus the header and bottom inset, so long plans scroll inside the remaining
 space rather than pushing the tab row above the display.
+
+Presentation/customization status is tracked in [Customization](Customization.md).
+O7 and O8 have source/build checkpoints; their installed/native/human gates remain open.
+
+
+## Today presentation preferences (O7 source, October 13)
+
+Settings → Notch → Today Presentation provides 15/25/45/60-minute new focus sessions,
+All/Required-only work, Current/Compact density and Standard/Subtle in-scroll
+reminders. Defaults are 25, All, Current and Standard. O6 deadline horizon stays in
+Closed Notch Glance and keeps its routine-countdown-only meaning.
+
+Required-only hides rows only when all their explicit deadlines are optional. Rows
+without deadlines, mixed rows and active focus/reminder targets remain; explicit
+glance navigation reveals/expands a hidden target until filter or snapshot changes.
+Mixed-row optional deadline detail normally hides except active targets. Original
+ranks/order and unlinked Start/Next strings remain. Filtered-empty text never implies
+completion. Compact changes spacing/padding; Subtle changes reminder weight/padding.
+Both preserve copy, disclosure and actions. No task, snapshot, quiet-hours, reminder
+ledger or scheduling mutation. A changed duration affects new sessions only.
+
+O7 strings use today.focus.duration, today.presentation, today.density and
+today.reminder.prominence in UserDefaults/AppStorage with bounded effective fallback.
+Exact NSClipView offset persistence remains with range clamping after content shrinks.
+Local automated/offscreen and unsigned-build evidence, installed/native/human limits,
+and O8 handoff are in Customization.md. O7 is not installed; native restart/keyboard/
+VoiceOver acceptance remains open.
+
+
+## Named Today presets (O8 source, October 13)
+
+Settings → Notch offers Study, Quiet, Media and one local Custom slot over the four
+O7 presentation keys and four O6 glance keys only. Preview is informational and shows
+all target values, including new focus duration 25 for built-ins. Explicit Apply
+freshly reads current settings. Save Custom stores effective values without applying
+them. Persistent one-level Restore keeps subsequent manual edits, including removal
+or invalid raw values, and consumes its record after reconciliation. Quiet means
+presentation only; active focus, reminders, quiet hours and payloads are unaffected.
+Source/test/unsigned Release passes and pending native/human gates are recorded in
+Customization.md's O8 checkpoint. The O8 candidate is not installed.
