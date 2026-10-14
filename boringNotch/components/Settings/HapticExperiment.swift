@@ -2,7 +2,28 @@ import AppKit
 import Defaults
 import Darwin
 
-/// Ordinary cues remain on SwiftUI's supported alignment route.
+import OSLog
+import SwiftUI
+
+/// Ordinary cues use the public AppKit alignment pattern directly. On Oct 14 the
+/// user felt no notch cue via SwiftUI's .sensoryFeedback, while this same AppKit
+/// call from a plain process tapped. The log line lets a test confirm firing.
+enum NotchHaptics {
+    static let log = Logger(subsystem: "theboringteam.boringnotch", category: "haptics")
+    static func play() {
+        log.info("cue performed")
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+}
+
+extension View {
+    /// Plays one ordinary cue each time `trigger` changes. Callers gate the
+    /// toggle with HapticCuePolicy, as they did for .sensoryFeedback.
+    func notchHaptic<T: Equatable>(trigger: T) -> some View {
+        onChange(of: trigger) { _, _ in NotchHaptics.play() }
+    }
+}
+
 enum HapticCuePolicy {
     enum Cue { case hover, action }
     static func allows(_ cue: Cue) -> Bool {

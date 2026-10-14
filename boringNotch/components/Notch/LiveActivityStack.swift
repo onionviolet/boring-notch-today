@@ -88,7 +88,7 @@ struct LiveActivityStack<Content: View>: View {
                     move(by: value.translation.width < 0 ? 1 : -1)
                 }
         )
-        .sensoryFeedback(.alignment, trigger: haptics)
+        .notchHaptic(trigger: haptics)
     }
 
     private func move(by delta: Int) {

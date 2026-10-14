@@ -403,7 +403,7 @@ struct ContentView: View {
                     .onChange(of: vm.isPopoverActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
-                    .sensoryFeedback(.alignment, trigger: haptics)
+                    .notchHaptic(trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
                             DispatchQueue.main.async {
