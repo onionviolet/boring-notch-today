@@ -7,7 +7,7 @@ Fork-local notes for agents. Upstream docs (README, CONTRIBUTING) cover the app 
 Personal fork of Boring Notch (macOS notch app, Swift/SwiftUI) with a read-only **Today** tab. Remotes: `origin` = `onionviolet/boring-notch-today` (the fork), `upstream` = `TheBoredTeam/boring.notch`. Fork work lives on `main` (upstream's own `main` is a release branch and `dev` is a separate, much larger train; see Upstream below). Fork commits start at `83847f4` ("Add read-only Today integration"); everything older is upstream.
 
 What the fork adds:
-- A schema-v1 JSON payload at `~/Library/Application Support/boring.notch/Today/payload.json`, displayed by the app. The app never speaks MCP and never reads the planning vault.
+- A schema-v1/v2 JSON payload at `~/Library/Application Support/boring.notch/Today/payload.json`, displayed by the app. The app never speaks MCP and never reads the planning vault.
 - A shared publisher/validator (`scripts/today_bridge.py`), a CLI (`scripts/boring-notch-today.py`) and a stdio MCP server (`scripts/boring-notch-today-mcp.py`, tools `publish_today`, `today_status`, `pending_today_refresh`).
 - Today as the default tab, scroll-safe, with exact scroll offset persisted (`today.scrollOffset` in UserDefaults).
 - Atoll-derived fixes (gesture, now-playing timing); see `docs/Atoll-review.md`.
@@ -21,6 +21,10 @@ Full contract, status semantics and security limits: `docs/Today.md`. Read it be
 - Only two action kinds exist: `source` (HTTPS only) and `itembank` (fixed bundle id `dev.itembank`).
 - Do not label a file watcher as "MCP connected". Status wording must match verified state (live, pending, offline/stale).
 - Refresh cannot wake an idle agent; do not imply it can.
+
+## Local app update preference
+
+User instruction, October 12, 2026: after an authorized local app update, verify the replacement launches from `/Applications/Boring Notch.app`, then delete the previous app copy created for that update. Keep a temporary rollback copy only until the replacement passes its launch check; do not retain old app backups after success. If installation or launch fails, preserve the previous app for recovery. This authorizes cleanup associated with future requested updates, not unrelated app deletion or automatic installation.
 
 ## Build and test
 
@@ -64,9 +68,11 @@ Keep these separate and never upgrade one to another: source edit, Python/Swift 
 
 ## Current state and resume point
 
-- `HANDOFF.md` was refreshed on 2026-10-07 with main history, Atoll commits, fresh test/unsigned-build gates and open items. MCP client restart and signed-distribution `MediaRemoteAdapter` Team ID reconciliation remain separate manual gates.
-- Local branch triage on 2026-10-07: `codex/open-today-shortcut` replays onto main cleanly; recommend merge. `codex/today-freshness-accessibility` conflicts in TodayStore/TodayView; recommend replay onto a new integration branch, resolve the current-layout overlap, then merge after its integration gates. Both pass Python/Swift and unsigned Release gates in the tested states recorded in `HANDOFF.md`; neither was merged or rewritten.
-- The ten carried Atoll/cleanup paths were committed on `codex/atoll-fixes` as `cf461f5` and `67ca6bb` after the requested tests and an unsigned Release build passed. Main remains at `3baab5f`; nothing was pushed or installed. Preserve any new user edits and stage only explicitly authorized task paths.
+- Current installed app source is the recovered integration worktree at `/Users/weiwei/.codex/worktrees/absorb-upstream-oct09/boring-notch-today`, branch `codex/absorb-upstream-2026-10-09`. Its resolved October 9 merge was recovered from the surviving Git index, then updated with selective October 13 upstream/fork fixes and the primary checkout's newer Today deadline/focus features. D-hall remains a separate fourth tab.
+- The final unsigned Release is installed and running at `/Applications/Boring Notch.app`; executable name is now `Boring Notch`. All four tabs were checked through the installed UI. This update's temporary rollback copy was deleted after launch verification. Source is staged/uncommitted; nothing was pushed.
+- Verification: 105/105 XCTest, final focused 3/3 duration/height XCTest, 10/10 Python, MCP smoke, standalone Today/schedule/D-hall, media timing and gesture checks pass. See `docs/Upstream-integration-2026-10-13.md` for revisions, logs, executable hash and remaining hardware/signing gates.
+- Compact Today follow-up: deadline/focus/reminder status now uses two 90-point wings at the normal closed-notch height; full reminder controls stay in Today’s scroll area. Final unsigned build, installed launch and glance-to-card navigation passed. The 105-test result above predates this layout follow-up. See the follow-up section in the October 13 report.
+- The primary checkout remains on `codex/atoll-fixes` with its existing edits preserved. Use the recovered integration source for future local app builds so upstream features and D-hall are not dropped. Earlier resume notes are archived in the October 13 integration report.
 
 ## Codex history
 

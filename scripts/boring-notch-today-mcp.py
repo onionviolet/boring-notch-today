@@ -27,7 +27,7 @@ mcp = MCPServer(
     "Boring Notch Today",
     instructions=(
         "The planning vault remains canonical. Use this server only to read bounded refresh intent and publish "
-        "schema-v1 display snapshots from sources the current task is authorized to read. Never infer or write "
+        "schema-v1/v2 display snapshots from sources the current task is authorized to read. Never infer or write "
         "task completion. When answering a refresh request, pass its exact ID to publish_today."
     ),
 )
@@ -35,7 +35,7 @@ mcp = MCPServer(
 
 @mcp.tool()
 def publish_today(payload: dict[str, Any], refresh_request_id: str | None = None) -> dict[str, Any]:
-    """Publish one schema-v1 Today snapshot; optionally acknowledge its refresh request."""
+    """Publish one schema-v1/v2 Today snapshot; optionally acknowledge its refresh request."""
     ensure_heartbeat()
     try:
         write_bridge_status("refreshing")

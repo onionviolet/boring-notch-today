@@ -61,6 +61,13 @@ async def main() -> None:
             result = await client.call_tool("publish_today", {"payload": payload, "refresh_request_id": request_id})
             assert result.structured_content["ok"] is True
             assert not (today_root / "refresh-request.json").exists()
+            extended = {**payload, "schemaVersion": 2, "deadlines": []}
+            result = await client.call_tool("publish_today", {"payload": extended})
+            assert result.structured_content["ok"] is True
+            assert json.loads((today_root / "payload.json").read_text())["schemaVersion"] == 2
+            rejected = await client.call_tool("publish_today", {"payload": {**extended, "deadlines": [{}]}})
+            assert rejected.structured_content["ok"] is False
+            assert json.loads((today_root / "payload.json").read_text()) == extended
     print("MCP smoke test passed")
 
 

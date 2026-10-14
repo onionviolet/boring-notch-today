@@ -52,6 +52,34 @@ class PublisherTests(unittest.TestCase):
         cases.append({**self.base, "actions": [{"id": "long", "label": "Long", "kind": "source", "url": "https://example.com/" + "a" * 600}]})
         for case in cases: self.assertEqual(self.publish(case).returncode, 2)
 
+    def test_deadline_extension_and_rejected_update_preserves_snapshot(self):
+        import copy
+        row = {"id": "lab", "work": "Lab", "purpose": "Learn", "studyMethod": "Build",
+               "doneWhen": "Receipt", "time": "25 min", "whyNow": "Due", "basis": "OFFICIAL"}
+        deadline = {"id": "lab-due", "rowID": "lab", "dueAt": "2026-10-13T02:00:00Z",
+                    "required": True, "actionID": "site", "reminders": [
+                        {"id": "prep", "at": "2026-10-12T19:00:00-04:00", "kind": "preparation"},
+                        {"id": "check", "at": "2026-10-13T01:30:00.123Z", "kind": "checkpoint"}]}
+        valid = {**self.base, "schemaVersion": 2, "rows": [row], "deadlines": [deadline],
+                 "actions": [{"id": "site", "label": "Submit", "kind": "source", "url": "https://example.edu/submit"}]}
+        self.assertEqual(self.publish(valid).returncode, 0)
+        payload = self.home / "Library/Application Support/boring.notch/Today/payload.json"
+        before = payload.read_bytes()
+        cases = [{**valid, "schemaVersion": 1}, {**valid, "deadlines": None},
+                 {**valid, "deadlines": [deadline] * 6}, {**valid, "deadlines": [deadline, deadline]}]
+        for field, value in [("rowID", "missing"), ("rowID", []), ("required", 1),
+                             ("actionID", "missing"), ("actionID", None), ("dueAt", "2026-10-13"),
+                             ("dueAt", "2026-10-12T18:00:00Z"), ("unknown", "no")]:
+            bad = copy.deepcopy(valid); bad["deadlines"][0][field] = value; cases.append(bad)
+        for field, value in [("at", "2026-10-14T02:00:00Z"), ("kind", "urgent"),
+                             ("command", "no"), ("id", "x" * 101)]:
+            bad = copy.deepcopy(valid); bad["deadlines"][0]["reminders"][0][field] = value; cases.append(bad)
+        bad = copy.deepcopy(valid); bad["deadlines"][0]["reminders"] *= 3; cases.append(bad)
+        for bad in cases:
+            with self.subTest(bad=bad):
+                self.assertEqual(self.publish(bad).returncode, 2)
+                self.assertEqual(payload.read_bytes(), before)
+
     def test_rejects_direct_and_parent_storage_symlinks(self):
         application_support = self.home / "Library/Application Support"
         application_support.mkdir(parents=True)

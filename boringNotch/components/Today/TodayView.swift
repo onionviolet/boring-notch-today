@@ -4,6 +4,8 @@ import SwiftUI
 struct TodayView: View {
     @StateObject private var store = TodayStore.shared
     @State private var actionMessage: String?
+    @State private var expandedRows: Set<String> = []
+    @State private var showQuietSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,7 +24,8 @@ struct TodayView: View {
                 }
             }
         }
-        .frame(width: 430)
+        // Fit the space below the notch header so the scroll viewport stays inside the panel.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { store.start() }
     }
 
@@ -90,19 +93,45 @@ struct TodayView: View {
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
+            if let focus = store.focus {
+                HStack {
+                    Text(focus.endsAt <= store.now ? "Focus session finished: \(focus.work)" : "Focus: \(focus.work) · \(store.focusRemaining ?? "")")
+                        .font(.caption).lineLimit(1)
+                    Spacer()
+                    Button(focus.endsAt <= store.now ? "Clear" : "Stop") { store.stopFocus() }
+                }.padding(.horizontal, 14).padding(.bottom, 6)
+            }
             Divider()
+            ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 9) {
+                    if !store.reminders.isEmpty {
+                        TodayReminderBanner { rowID in
+                            store.selectedRowID = rowID
+                            store.dismissReminders()
+                        }
+                    }
                     if payload.rows.isEmpty {
                         Text("No ranked work remains. Keep the win small.").font(.subheadline).foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(payload.rows.enumerated()), id: \.element.id) { index, row in
-                            DisclosureGroup {
+                            DisclosureGroup(isExpanded: Binding(
+                                get: { expandedRows.contains(row.id) },
+                                set: { if $0 { expandedRows.insert(row.id) } else { expandedRows.remove(row.id) } }
+                            )) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     labeled("Purpose", row.purpose)
                                     labeled("Method", row.studyMethod)
                                     labeled("Why now", row.whyNow)
                                     labeled("Done", row.doneWhen)
+                                    if let deadline = payload.deadlines?.first(where: { $0.rowID == row.id }) {
+                                        Text("\(deadline.required ? "Required" : "Optional") · Due \(deadline.dueAt.formatted(date: .abbreviated, time: .shortened)) · \(TodaySchedule.countdown(to: deadline.dueAt, at: store.now))")
+                                            .font(.caption).foregroundStyle(.orange)
+                                        if let action = payload.actions.first(where: { $0.id == deadline.actionID }) {
+                                            Button("Open submission site") { open(action) }.buttonStyle(.bordered)
+                                        }
+                                    }
+                                    Button("Focus for 25 minutes") { store.startFocus(row: row) }.buttonStyle(.bordered)
                                     Text(row.basis.rawValue).font(.caption2).foregroundStyle(.secondary)
                                 }.padding(.top, 4)
                             } label: {
@@ -111,9 +140,13 @@ struct TodayView: View {
                                         .font(.subheadline.weight(.semibold))
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer(minLength: 8)
-                                    Text(row.time).font(.caption).foregroundStyle(.secondary).fixedSize()
+                                    Text(row.time)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(maxWidth: 150, alignment: .trailing)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
-                            }.padding(.vertical, 2)
+                            }.padding(.vertical, 2).id(row.id)
                         }
                     }
                     if let anki = payload.anki {
@@ -124,6 +157,8 @@ struct TodayView: View {
                     HStack {
                         ForEach(payload.actions) { action in Button(action.label) { open(action) }.buttonStyle(.bordered) }
                         Spacer()
+                        Button { showQuietSettings.toggle() } label: { Image(systemName: "moon") }
+                            .help("Quiet hours").popover(isPresented: $showQuietSettings) { TodayQuietSettings() }
                         Button(store.refreshPending ? "Requested" : "Refresh") { store.requestRefresh() }
                             .buttonStyle(.bordered).disabled(store.refreshPending)
                             .help("Request a new plan from an active agent.")
@@ -134,9 +169,15 @@ struct TodayView: View {
                 .padding(14)
                 .background(TodayScrollPositionKeeper(defaultsKey: "today.scrollOffset"))
             }
-            .frame(minHeight: 40, maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
+            .onAppear {
+                if let id = store.selectedRowID { expandedRows.insert(id); proxy.scrollTo(id, anchor: .top); store.selectedRowID = nil }
+            }
+            .onChange(of: store.selectedRowID) { _, id in
+                if let id { expandedRows.insert(id); proxy.scrollTo(id, anchor: .top); store.selectedRowID = nil }
+            }
+            }
         }
-        .frame(height: 150)
     }
 
     private func updateLabel(_ date: Date, at now: Date) -> String {
@@ -247,5 +288,120 @@ private struct TodayScrollPositionKeeper: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+
+struct TodayReminderBanner: View {
+    @ObservedObject var store = TodayStore.shared
+    let openToday: (String) -> Void
+
+    private var grouped: [TodayDueReminder] {
+        var seen: Set<String> = []
+        return store.reminders.sorted { $0.deadline.required && !$1.deadline.required }
+            .filter { seen.insert($0.deadline.id).inserted }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(grouped) { item in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(item.deadline.required ? "Required" : "Optional"): \(item.row.work)")
+                            .font(.caption.weight(.semibold)).lineLimit(1).help(item.row.work)
+                        Text(item.deadline.dueAt <= store.now ? "Deadline passed · \(item.deadline.dueAt.formatted(date: .omitted, time: .shortened))" : "Due \(item.deadline.dueAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Today") { openToday(item.row.id) }
+                    if let action = source(for: item) {
+                        Button("Site") {
+                            if let url = action.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
+                        }
+                    }
+                }
+            }
+            if store.reminders.contains(where: { $0.reminder.kind == .checkpoint }) {
+                Text("Check required files and the final submission receipt.").font(.caption2).foregroundStyle(.orange)
+            }
+            HStack {
+                Button("Snooze 10 min") { store.snoozeReminders() }
+                Button("Dismiss") { store.dismissReminders() }
+            }
+        }.buttonStyle(.bordered).padding(10).frame(width: 580, alignment: .leading)
+    }
+
+    private func source(for item: TodayDueReminder) -> TodayAction? {
+        guard case .ready(let payload, _) = store.state else { return nil }
+        return payload.actions.first { $0.id == item.deadline.actionID && $0.kind == .source }
+    }
+}
+
+private struct TodayQuietSettings: View {
+    @AppStorage("today.quiet.enabled") private var enabled = false
+    @AppStorage("today.quiet.start") private var start = 1320
+    @AppStorage("today.quiet.end") private var end = 480
+    @AppStorage("today.quiet.allowRequired") private var allowRequired = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Quiet hours", isOn: $enabled)
+            HStack {
+                Picker("From", selection: $start) { times }
+                Picker("Until", selection: $end) { times }
+            }
+            Toggle("Allow required deadline alerts during quiet hours", isOn: $allowRequired)
+            Text("Optional work stays quiet. Equal times silence routine alerts all day.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.padding().frame(width: 350)
+    }
+
+    private var times: some View {
+        ForEach(Array(stride(from: 0, to: 1440, by: 30)), id: \.self) { minute in
+            Text(String(format: "%02d:%02d", minute / 60, minute % 60)).tag(minute)
+        }
+    }
+}
+
+
+/// A glance occupies only the wings alongside the hardware notch, never a lower banner.
+struct TodayNotchGlance: View {
+    @ObservedObject var store = TodayStore.shared
+    let notchWidth: CGFloat
+    let height: CGFloat
+    let openToday: (String) -> Void
+
+    private var reminder: TodayDueReminder? { store.reminders.first }
+    private var rowID: String? { reminder?.row.id ?? store.focus?.rowID ?? store.upcomingDeadline?.rowID }
+    private var title: String { reminder?.row.work ?? store.focus?.work ?? store.upcomingWork ?? "Today" }
+    private var status: String {
+        if reminder != nil { return "Reminder" }
+        if let focus = store.focus { return focus.endsAt <= store.now ? "Focus done" : store.focusRemaining ?? "Focus" }
+        if let due = store.upcomingDeadline { return TodaySchedule.countdown(to: due.dueAt, at: store.now).replacingOccurrences(of: " left", with: "") }
+        return "Today"
+    }
+
+    var body: some View {
+        Button {
+            if let rowID { openToday(rowID) }
+        } label: {
+            HStack(spacing: 0) {
+                Text(title)
+                    .frame(width: 90, alignment: .leading)
+                Color.clear.frame(width: notchWidth + 10)
+                Text(status)
+                    .monospacedDigit()
+                    .foregroundStyle(reminder != nil ? .orange : .secondary)
+                    .frame(width: 90, alignment: .trailing)
+            }
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(height: height)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title + " · " + status + ". Open Today for details.")
+        .accessibilityLabel(title + ", " + status + ", open Today")
     }
 }

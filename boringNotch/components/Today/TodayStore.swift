@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Darwin
 import Foundation
@@ -11,17 +12,32 @@ final class TodayStore: ObservableObject {
     @Published private(set) var bridgeConnection: TodayBridgeConnection = .disconnected
     @Published private(set) var refreshPending = false
     @Published private(set) var notice: String?
+    @Published private(set) var reminders: [TodayDueReminder] = []
+    @Published private(set) var now = Date()
+    @Published private(set) var focus: TodayFocusSession?
+    @Published var selectedRowID: String?
+    private var scheduleTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+    private var ledger = TodayReminderLedger()
     private var timer: Timer?
     private var watcher: DispatchSourceFileSystemObject?
     private var watchedURL: URL?
     private var debounceWorkItem: DispatchWorkItem?
     private var lastGoodPayload: TodayPayload?
+    private var latestPayloadAccepted = false
     private var lastRefreshRequestAt: Date?
 
-    private init() {}
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: "today.reminderLedger"),
+           let saved = try? JSONDecoder().decode(TodayReminderLedger.self, from: data) { ledger = saved }
+        if let data = UserDefaults.standard.data(forKey: "today.focus"),
+           let saved = try? JSONDecoder().decode(TodayFocusSession.self, from: data) { focus = saved }
+    }
 
     deinit {
         timer?.invalidate()
+        scheduleTimer?.invalidate()
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         debounceWorkItem?.cancel()
         watcher?.cancel()
     }
@@ -44,6 +60,12 @@ final class TodayStore: ObservableObject {
         reload()
         installWatcherIfNeeded()
         guard timer == nil else { return }
+        scheduleTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.reload() }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.reload()
@@ -53,10 +75,13 @@ final class TodayStore: ObservableObject {
     }
 
     func reload() {
+        defer { tick() }
         reloadBridgeStatus()
         reloadRefreshPending()
         guard FileManager.default.fileExists(atPath: Self.payloadURL.path) else {
             lastGoodPayload = nil
+            latestPayloadAccepted = false
+            stopFocus()
             state = .empty
             return
         }
@@ -67,10 +92,12 @@ final class TodayStore: ObservableObject {
                 throw TodayPayloadError.invalidText("payload file")
             }
             let payload = try TodayPayload.decodeValidated(from: Data(contentsOf: Self.payloadURL))
+            latestPayloadAccepted = true
             lastGoodPayload = payload
             if !refreshPending { notice = nil }
             state = .ready(payload, isStale: payload.isStale())
         } catch {
+            latestPayloadAccepted = false
             notice = "Latest update was rejected."
             if let lastGoodPayload {
                 state = .ready(lastGoodPayload, isStale: lastGoodPayload.isStale())
@@ -153,6 +180,82 @@ final class TodayStore: ObservableObject {
         }
     }
 
+    private var currentPayload: TodayPayload? {
+        guard latestPayloadAccepted, case .ready(let payload, _) = state else { return nil }
+        return payload
+    }
+
+    var upcomingDeadline: TodayDeadline? {
+        currentPayload.flatMap { TodaySchedule.nextDeadline(payload: $0, at: now) }
+    }
+
+    var upcomingWork: String? {
+        guard let deadline = upcomingDeadline else { return nil }
+        return currentPayload?.rows.first(where: { $0.id == deadline.rowID })?.work
+    }
+
+    var focusRemaining: String? {
+        guard let focus else { return nil }
+        let seconds = max(0, Int(ceil(focus.endsAt.timeIntervalSince(now))))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+
+    func tick() {
+        now = Date()
+        let defaults = UserDefaults.standard
+        let quiet = TodayQuietHours(enabled: defaults.bool(forKey: "today.quiet.enabled"),
+            startMinute: defaults.object(forKey: "today.quiet.start") as? Int ?? 1320,
+            endMinute: defaults.object(forKey: "today.quiet.end") as? Int ?? 480,
+            allowRequiredDeadlines: defaults.bool(forKey: "today.quiet.allowRequired"))
+        guard let payload = currentPayload else { reminders = []; return }
+        if let focus, !payload.rows.contains(where: { $0.id == focus.rowID }) { stopFocus() }
+        ledger.prune(at: now)
+        let due = TodaySchedule.due(payload: payload, at: now, ledger: ledger, quiet: quiet)
+        // Keep a displayed banner until dismissed; remove it when its schedule is removed or changed.
+        let valid = Set((payload.deadlines ?? []).flatMap { deadline -> [String] in
+            guard let row = payload.rows.first(where: { $0.id == deadline.rowID }) else { return [] }
+            return deadline.reminders.map { TodayDueReminder(deadline: deadline, reminder: $0, row: row).id }
+        })
+        reminders = reminders.filter { valid.contains($0.id) && !payload.isStale(at: now)
+            && now <= $0.deadline.dueAt.addingTimeInterval(3600)
+            && !(quiet.contains(now) && !($0.deadline.required && quiet.allowRequiredDeadlines)) }
+        var changed = false
+        for item in due where !reminders.contains(where: { $0.id == item.id }) {
+            reminders.append(item)
+            ledger.delivered[item.id] = now
+            ledger.snoozed.removeValue(forKey: item.id)
+            changed = true
+        }
+        // Refresh titles/details on an existing banner without replaying its reminder.
+        reminders = reminders.map { item in
+            let row = payload.rows.first(where: { $0.id == item.deadline.rowID }) ?? item.row
+            return TodayDueReminder(deadline: item.deadline, reminder: item.reminder, row: row)
+        }
+        if changed { saveLedger() }
+    }
+
+    func dismissReminders() { reminders = [] }
+
+    func snoozeReminders() {
+        for item in reminders { ledger.snoozed[item.id] = now.addingTimeInterval(600) }
+        reminders = []
+        saveLedger()
+    }
+
+    private func saveLedger() {
+        if let data = try? JSONEncoder().encode(ledger) { UserDefaults.standard.set(data, forKey: "today.reminderLedger") }
+    }
+
+    func startFocus(row: TodayRow) {
+        focus = TodayFocusSession(rowID: row.id, work: row.work, endsAt: Date().addingTimeInterval(25 * 60))
+        if let data = try? JSONEncoder().encode(focus) { UserDefaults.standard.set(data, forKey: "today.focus") }
+    }
+
+    func stopFocus() {
+        focus = nil
+        UserDefaults.standard.removeObject(forKey: "today.focus")
+    }
+
     private func nearestExistingWatchURL() -> URL? {
         var candidate = Self.directoryURL
         while candidate.path != "/" {
@@ -203,4 +306,11 @@ final class TodayStore: ObservableObject {
         debounceWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
+}
+
+
+struct TodayFocusSession: Codable, Equatable {
+    let rowID: String
+    let work: String
+    let endsAt: Date
 }

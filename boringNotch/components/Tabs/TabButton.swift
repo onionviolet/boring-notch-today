@@ -12,7 +12,7 @@ struct TabButton: View {
     let icon: String
     let selected: Bool
     let onClick: () -> Void
-    
+
     var body: some View {
         Button(action: onClick) {
             Image(systemName: icon)
@@ -20,11 +20,15 @@ struct TabButton: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
+        .help(label)
+        .accessibilityLabel(Text(label))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityRemoveTraits(selected ? [] : .isSelected)
     }
 }
 
 #Preview {
     TabButton(label: "Home", icon: "tray.fill", selected: true) {
-        print("Tapped")
+        Log.general.debug("Tapped")
     }
 }

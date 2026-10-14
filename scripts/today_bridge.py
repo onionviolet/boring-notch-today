@@ -22,7 +22,7 @@ MAX_TEXT = 500
 BRIDGE_STALE_SECONDS = 15
 _KEEP_LAST_PUBLISH = object()
 RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
-ROOT_KEYS = {"schemaVersion", "generatedAt", "rows", "next", "protected", "start", "anki", "actions"}
+ROOT_KEYS = {"schemaVersion", "generatedAt", "rows", "next", "protected", "start", "anki", "actions", "deadlines"}
 ROW_KEYS = {"id", "work", "purpose", "studyMethod", "doneWhen", "time", "whyNow", "basis"}
 ANKI_KEYS = {"status", "reviewedToday", "newCards"}
 ACTION_KEYS = {"id", "label", "kind", "url"}
@@ -54,8 +54,8 @@ def reject_unknown(value: dict[str, Any], allowed: set[str], name: str) -> None:
 
 
 def validate_payload(data: Any, *, now: dt.datetime | None = None) -> dict[str, Any]:
-    if not isinstance(data, dict) or data.get("schemaVersion") != 1:
-        invalid("schemaVersion must be 1")
+    if not isinstance(data, dict) or type(data.get("schemaVersion")) is not int or data.get("schemaVersion") not in (1, 2):
+        invalid("schemaVersion must be 1 or 2")
     reject_unknown(data, ROOT_KEYS, "payload")
     if not {"generatedAt", "rows", "actions"}.issubset(data):
         invalid("payload is missing required fields")
@@ -123,10 +123,54 @@ def validate_payload(data: Any, *, now: dt.datetime | None = None) -> dict[str, 
             invalid("action.kind is invalid")
     if len({action["id"] for action in actions}) != len(actions):
         invalid("action ids must be unique")
+    if "deadlines" in data and data["schemaVersion"] != 2:
+        invalid("deadlines require schemaVersion 2")
+    deadlines = data.get("deadlines", [])
+    if not isinstance(deadlines, list) or len(deadlines) > 5:
+        invalid("deadlines must contain zero to five entries")
+    deadline_ids = set()
+    for deadline in deadlines:
+        if not isinstance(deadline, dict):
+            invalid("deadline must be an object")
+        reject_unknown(deadline, {"id", "rowID", "dueAt", "required", "actionID", "reminders"}, "deadline")
+        bounded_text(deadline.get("id"), "deadline.id")
+        if len(deadline["id"]) > 100 or deadline["id"] in deadline_ids:
+            invalid("invalid or duplicate deadline id")
+        deadline_ids.add(deadline["id"])
+        if not isinstance(deadline.get("rowID"), str) or deadline["rowID"] not in {row["id"] for row in rows} or type(deadline.get("required")) is not bool:
+            invalid("invalid deadline row or requirement")
+        due = parse_deadline_date(deadline.get("dueAt"))
+        action_id = deadline.get("actionID")
+        if action_id is not None and not any(a["id"] == action_id and a["kind"] == "source" for a in actions):
+            invalid("deadline action must reference a source")
+        reminders = deadline.get("reminders")
+        if not isinstance(reminders, list) or len(reminders) > 4:
+            invalid("deadline requires zero to four reminders")
+        reminder_ids = set()
+        for reminder in reminders:
+            if not isinstance(reminder, dict) or set(reminder) != {"id", "at", "kind"}:
+                invalid("invalid reminder")
+            bounded_text(reminder["id"], "reminder.id")
+            if len(reminder["id"]) > 100 or reminder["id"] in reminder_ids:
+                invalid("invalid or duplicate reminder id")
+            reminder_ids.add(reminder["id"])
+            if parse_deadline_date(reminder["at"]) > due or reminder["kind"] not in ("preparation", "checkpoint"):
+                invalid("invalid reminder time or kind")
+            if reminder["kind"] == "checkpoint" and action_id is None:
+                invalid("checkpoint requires a source")
     encoded = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()
     if len(encoded) > MAX_PAYLOAD_BYTES:
         invalid("payload exceeds 64 KiB")
     return data
+
+
+def parse_deadline_date(value: Any) -> dt.datetime:
+    if not isinstance(value, str) or not RFC3339.fullmatch(value):
+        invalid("deadline timestamps require time and timezone")
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        invalid("invalid deadline timestamp")
 
 
 def _reject_unsafe_storage(path: pathlib.Path, *, regular_file: bool = False) -> None:

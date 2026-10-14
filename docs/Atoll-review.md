@@ -1,5 +1,10 @@
 # Atoll comparison and selective adaptations
 
+**2026-10-09 integration:** The adaptations are carried into the staged upstream
+integration on `codex/absorb-upstream-2026-10-09`. See
+[the current integration evidence](Upstream-integration-2026-10-09.md). Historical
+pending-candidate statements below no longer describe this checkout.
+
 **2026-09-23 update:** The gesture and timing adaptations are now integrated into
 the upstream candidate, with explicit clipboard capture and Shelf improvements.
 The previously linked combined-candidate worktree is no longer present. Treat
@@ -91,10 +96,8 @@ coordinator. Concatenation keeps its implementation private in production.
 
 ```sh
 mkdir -p work
-cat boringNotch/extensions/PanGesture.swift tests/PanGestureTests.swift > work/PanGestureRegressionTests.swift
-swiftc -parse-as-library work/PanGestureRegressionTests.swift -o work/pan-gesture-tests
-work/pan-gesture-tests
-swiftc -D NOW_PLAYING_TIMING_TEST boringNotch/MediaControllers/NowPlayingController.swift tests/NowPlayingTimingTests.swift -o work/now-playing-timing-tests
+python3 tests/run_pan_gestures.py
+swiftc -D NOW_PLAYING_TIMING_TEST boringNotch/MediaControllers/NowPlayingController.swift boringNotch/MediaControllers/NowPlayingStreamSupport.swift tests/NowPlayingTimingTests.swift -o work/now-playing-timing-tests
 work/now-playing-timing-tests
 python3 -m unittest -v tests/test_publisher.py tests/test_bridge.py
 swiftc boringNotch/components/Today/TodayPayload.swift boringNotch/components/Today/TodayBridgeStatus.swift tests/TodayPayloadTests.swift -o work/atoll-today-tests

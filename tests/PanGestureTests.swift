@@ -89,6 +89,9 @@ extension ScrollMonitor.Coordinator {
 @main
 struct PanGestureRegressionTests {
     @MainActor static func main() {
+        let previous = Defaults[.normalizeGestureDirection]
+        defer { Defaults[.normalizeGestureDirection] = previous }
+        Defaults[.normalizeGestureDirection] = false
         ScrollMonitor.Coordinator.runRegressionTests()
     }
 }
