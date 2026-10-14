@@ -332,8 +332,10 @@ risk even with version gating.
 
 Settings → Notch → Haptic Feedback now has master Enable, default-on Hover cues
 and Action cues. Ordinary cues stay on the existing SwiftUI alignment route.
-Master Off also gates the feedback modifier at render time and all experimental
-Test requests. The groups cover the actual existing sites:
+Master Off gates every cue trigger and all experimental Test requests. (October 14:
+a render-time condition closure added to the four `.sensoryFeedback` modifiers
+coincided with the user feeling no notch feedback; it was redundant with trigger
+gating and was removed to restore the original modifiers.) The groups cover the actual existing sites:
 
 | Site | Existing trigger | Group / duplicate review |
 | --- | --- | --- |

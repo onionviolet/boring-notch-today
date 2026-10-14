@@ -67,7 +67,7 @@ struct WheelPicker: View {
         .scrollPosition(id: $scrollPosition, anchor: .center)
         .scrollTargetBehavior(.viewAligned)  // Ensures scroll view snaps the centered view
         .safeAreaPadding(.horizontal)
-        .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
+        .sensoryFeedback(.alignment, trigger: haptics)
         .onContinuousHover { phase in
             switch phase {
             case .active:
@@ -278,7 +278,7 @@ struct WeekStripPicker: View {
         .frame(height: 50)
         .clipped()  // keep the week-flip slide inside the calendar column (no bleed into music)
         .padding(.horizontal, 2)
-        .sensoryFeedback(.alignment, trigger: haptics) { _, _ in Defaults[.enableHaptics] }
+        .sensoryFeedback(.alignment, trigger: haptics)
         .onContinuousHover { phase in
             switch phase {
             case .active:
