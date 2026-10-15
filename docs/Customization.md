@@ -4,7 +4,7 @@ Updated October 13, 2026. The user requested considering haptic intensity and a
 broader customization scope for upcoming updates. The options below remain roadmap
 proposals except for the bounded O6, O5, O7 and O8 source implementations recorded below.
 O6 is installed with native navigation checks; human visual/restart acceptance is open.
-O5, O7 and O8 are built but not installed; O5 physical intensity is unverified.
+O5, O7 and O8 are installed (October 14). O5 physical intensity was user-tested October 14; see the O5 October 14 section.
 Current app source
 is the recovered integration worktree identified in CLAUDE.md.
 
@@ -258,6 +258,39 @@ mirrors, to that successor. No existing haptic successor was found in live recen
 chat inventory. O7 then O8 remain next; O9 remains optional rather than a mandatory
 prerequisite or an excuse for indefinite chaining.
 
+
+## O5 October 14: physical trial and actuator-backed cues
+
+Problem: after the October 14 install the user felt no notch cue. The cue path was
+identical to the earlier build. An AppKit `.alignment` probe from a plain process did
+tap but was too faint to feel with a moving finger, and the app was confirmed by log
+to fire its cue. So the public route works but is too weak for hover.
+
+Physical trial (user, moving finger, `work/haptic-compare*.swift`): public
+`.alignment`, `.levelChange`, `.generic` and a double tap were not usefully felt.
+Private actuator waveform 6 at 0.45 and 0.70 were felt, with 0.70 best. Round 2 at
+0.70, 1.00, 1.15 and 1.30 felt stronger at each step. The user chose 0.70 as the
+default. This is the first physical evidence that the strength argument scales
+perceived intensity on this Mac (macOS 27.2, 26B5101f, built-in trackpad).
+
+Implementation: notch cues now go through `TrackpadActuator` (one serial queue, off
+the UI thread; one open actuator reused, closed after 5 s idle and on wake; cues
+under 40 ms apart dropped; failed pulse drops the lease and reacquires; failed
+acquisition falls back to the public tap and retries after 30 s). Settings has one
+**Tap strength** slider, 0.10 to 2.00, default 0.70, previewing one tap on release.
+Values above 1.30 (Tactile's highest) are flagged as untested. The route label
+shows whether the actuator or the standard tap is active. The ABI gate still limits
+the private route to build 26B5101f; other builds get the standard tap. Measured
+open+pulse+close cost: 22 to 26 ms. The old preset-menu Test UI and the
+`experimentalHapticStrength` key are retired; `hapticStrength` (Double) replaces it.
+
+Verification: 37/37 XCTest (haptic engine with fake actuator and injected clock,
+real-host acquire/release without pulse, calendar, UI events, Today presets and
+presentation); unsigned Release built and installed; a synthetic hover on the
+installed app logged `cue actuator`. Open: whether the user finds hover at 0.70
+right in daily use; behavior above 1.30; Magic Trackpad; macOS updates (fallback).
+Later: custom parametric waveforms (`MTActuationCreateFromDictionary`) for shaped
+pulses, as the user suggested.
 
 ## O5 execution ownership, October 13
 

@@ -428,7 +428,7 @@ extension Defaults.Keys {
     static let enableHaptics = Key<Bool>("enableHaptics", default: true)
     static let hapticHover = Key<Bool>("hapticHover", default: true)
     static let hapticActions = Key<Bool>("hapticActions", default: true)
-    static let experimentalHapticStrength = Key<String>("experimentalHapticStrength", default: "0.2")
+    static let hapticStrength = Key<Double>("hapticStrength", default: 0.7)
     static let openNotchOnHover = Key<Bool>("openNotchOnHover", default: true)
     static let extendHoverArea = Key<Bool>("extendHoverArea", default: false)
     static let notchHeightMode = Key<WindowHeightMode>(

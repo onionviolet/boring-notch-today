@@ -22,8 +22,8 @@ struct NotchSettingsView: View {
     @Default(.todayGlanceHorizon) var todayGlanceHorizon
 
     @Default(.enableHaptics) var enableHaptics
-    @Default(.experimentalHapticStrength) var experimentalHapticStrength
-    @StateObject private var hapticExperiment = HapticExperiment()
+    @Default(.hapticStrength) var hapticStrength
+    @State private var hapticRoute = "Checking trackpad..."
 
     @Default(.gestureSensitivity) var gestureSensitivity
     @Default(.minimumHoverDuration) var minimumHoverDuration
@@ -118,29 +118,45 @@ struct NotchSettingsView: View {
             Defaults.Toggle(key: .hapticActions) { Text("Action cues") }.disabled(!enableHaptics)
             Text("Actions include notch and media gestures, activity selection and calendar navigation.")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Experimental trackpad-strength test").font(.headline)
-            if hapticExperiment.available {
-                Picker("Requested strength", selection: Binding(
-                    get: { HapticStrength.selection(experimentalHapticStrength) },
-                    set: { experimentalHapticStrength = $0 }
-                )) {
-                    Text("Off").tag("off")
-                    Text("0.20").tag("0.2")
-                    Text("0.45").tag("0.45")
-                    Text("0.70").tag("0.7")
-                }.disabled(!enableHaptics)
-                Button("Test single pulse") {
-                    hapticExperiment.test(masterEnabled: Defaults[.enableHaptics],
-                        requestedStrength: HapticStrength.requested(Defaults[.experimentalHapticStrength]))
-                }.disabled(!enableHaptics)
-                Text("These are requested actuator values. Physical intensity is unverified. Only Test requests a pulse.")
-                    .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Tap strength")
+                Slider(value: Binding(
+                    get: { min(max(hapticStrength, HapticStrength.range.lowerBound), HapticStrength.range.upperBound) },
+                    set: { hapticStrength = $0 }
+                ), in: HapticStrength.range, step: 0.05) { editing in
+                    // One preview tap when the slider is released, never while dragging.
+                    if !editing && enableHaptics { previewHaptic() }
+                }
+                Text(String(format: "%.2f", hapticStrength)).monospacedDigit().frame(width: 36, alignment: .trailing)
+                Button("Default") { hapticStrength = HapticStrength.defaultValue }
+                    .disabled(hapticStrength == HapticStrength.defaultValue)
+            }.disabled(!enableHaptics)
+            if hapticStrength > HapticStrength.testedCeiling {
+                Text("Above 1.30 is past the tested range. If taps stop getting stronger or feel harsh, come back down.")
+                    .font(.caption).foregroundStyle(.orange)
             }
-            Text(hapticExperiment.status).font(.caption).foregroundStyle(.secondary)
-            Button("Check availability") { hapticExperiment.checkAvailability() }
-                .help("Recheck a reconnected trackpad without sending a pulse.")
+            Text(hapticRoute).font(.caption).foregroundStyle(.secondary)
         }
-        .task { hapticExperiment.checkAvailability() }
+        .task { checkHapticRoute() }
+    }
+
+    private func previewHaptic() {
+        NotchHaptics.preview(strength: hapticStrength) { outcome in hapticRoute = routeText(outcome) }
+    }
+
+    private func checkHapticRoute() {
+        TrackpadActuator.shared.checkRoute { outcome in hapticRoute = routeText(outcome) }
+    }
+
+    private func routeText(_ outcome: TrackpadActuator.Outcome) -> String {
+        switch outcome {
+        case .played, .throttled:
+            "Trackpad actuator (private macOS route). Release the slider to feel the new strength."
+        case .unavailable(let reason):
+            "Standard macOS tap: the stronger route is unavailable (\(reason)). The slider has no effect."
+        case .failed(let code):
+            "Standard macOS tap: the trackpad actuator returned \(code). Will retry on the next cue."
+        }
     }
 
     private var sizingSection: some View {

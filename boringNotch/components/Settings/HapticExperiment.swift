@@ -1,17 +1,33 @@
 import AppKit
-import Defaults
 import Darwin
-
+import Defaults
 import OSLog
 import SwiftUI
 
-/// Ordinary cues use the public AppKit alignment pattern directly. On Oct 14 the
-/// user felt no notch cue via SwiftUI's .sensoryFeedback, while this same AppKit
-/// call from a plain process tapped. The log line lets a test confirm firing.
+/// Notch cues drive the trackpad actuator directly at the user's strength, and
+/// fall back to the public AppKit alignment tap when that route is unavailable.
+/// On Oct 14 the user could not feel the public tap while moving a finger; the
+/// actuator at 0.70 was felt, and 0.70 through 1.30 scaled up in steps.
 enum NotchHaptics {
     static let log = Logger(subsystem: "theboringteam.boringnotch", category: "haptics")
+
+    /// One ordinary cue. Callers gate it with HapticCuePolicy.
     static func play() {
-        log.info("cue performed")
+        TrackpadActuator.shared.request(strength: Defaults[.hapticStrength]) { outcome in
+            log.info("cue \(outcome.logLabel, privacy: .public)")
+            if outcome.needsFallback { playStandardTap() }
+        }
+    }
+
+    /// One deliberate preview, for the Settings slider release.
+    static func preview(strength: Double, completion: @escaping @MainActor (TrackpadActuator.Outcome) -> Void) {
+        TrackpadActuator.shared.request(strength: strength, bypassThrottle: true) { outcome in
+            if outcome.needsFallback { playStandardTap() }
+            completion(outcome)
+        }
+    }
+
+    @MainActor static func playStandardTap() {
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
 }
@@ -34,87 +50,161 @@ enum HapticCuePolicy {
     }
 }
 
-struct HapticStrength {
-    static let conservativeDefault = 0.2
-    static let choices = ["off", "0.2", "0.45", "0.7"]
-    static func selection(_ stored: String) -> String { choices.contains(stored) ? stored : "0.2" }
-    static func requested(_ stored: String) -> Double {
-        let value = selection(stored)
-        return value == "off" ? 0 : Double(value) ?? conservativeDefault
-    }
+enum HapticStrength {
+    static let range: ClosedRange<Double> = 0.1...2.0
+    static let defaultValue = 0.7
+    /// Highest value the source project uses and the user felt on Oct 14.
+    static let testedCeiling = 1.3
     static func clamped(_ value: Double) -> Float {
-        Float(value.isFinite ? min(max(value, 0), 0.7) : conservativeDefault)
+        Float(value.isFinite ? min(max(value, range.lowerBound), range.upperBound) : defaultValue)
     }
 }
 
-/// A lease owns one opened actuator and its library. No lease survives a request.
-@MainActor
-protocol ExperimentalActuatorLease: AnyObject {
+/// A lease owns one opened actuator and its library handle.
+protocol ActuatorLease: AnyObject {
     func pulse(strength: Float) -> Int32
     func finish() -> Int32
 }
 
-@MainActor
-protocol ExperimentalActuatorAccess {
-    func acquire() -> Result<any ExperimentalActuatorLease, HapticExperimentFailure>
+protocol ActuatorAccess {
+    func acquire() -> Result<any ActuatorLease, HapticFailure>
 }
 
-struct HapticExperimentFailure: Error, Equatable {
+struct HapticFailure: Error, Equatable {
     let message: String
 }
 
-@MainActor
-final class HapticExperiment: ObservableObject {
-    @Published private(set) var available = false
-    @Published private(set) var status = "Check availability to use the experiment."
-    private let access: any ExperimentalActuatorAccess
+/// Owns at most one open actuator. All work runs on one serial queue so the
+/// ~25 ms open cost and the private calls never block the UI thread.
+final class TrackpadActuator: @unchecked Sendable {
+    enum Outcome: Equatable {
+        case played
+        case throttled
+        case unavailable(String)
+        case failed(Int32)
 
-    init(access: any ExperimentalActuatorAccess = PrivateActuatorAccess()) { self.access = access }
-
-    /// Availability checks acquire and release, but never request a pulse.
-    func checkAvailability() {
-        switch access.acquire() {
-        case .failure(let error): fail(error.message)
-        case .success(let lease):
-            let code = lease.finish()
-            if code == 0 {
-                available = true
-                status = "Available. Physical intensity is unverified."
-            } else { fail("Actuator cleanup failed (\(code)).") }
+        var needsFallback: Bool {
+            switch self {
+            case .played, .throttled: false
+            case .unavailable, .failed: true
+            }
         }
-    }
-
-    func test(masterEnabled: Bool, requestedStrength: Double) {
-        let strength = HapticStrength.clamped(requestedStrength)
-        guard masterEnabled, strength > 0 else {
-            status = "Silent: haptics or requested strength is off."
-            return
-        }
-        // Fresh enumeration prevents stale cached devices across sleep/reconnect.
-        // Never retry an actuation, even when its return value reports failure.
-        switch access.acquire() {
-        case .failure(let error): fail(error.message)
-        case .success(let lease):
-            let code = lease.pulse(strength: strength)
-            let cleanup = lease.finish()
-            if code != 0 { fail("Test failed (\(code)); no fallback pulse was sent.") }
-            else if cleanup != 0 { fail("Test returned success, but cleanup failed (\(cleanup)).") }
-            else {
-                available = true
-                status = "One pulse requested at \(strength). Physical intensity is unverified."
+        var logLabel: String {
+            switch self {
+            case .played: "actuator"
+            case .throttled: "throttled"
+            case .unavailable(let reason): "standard tap (\(reason))"
+            case .failed(let code): "standard tap (actuate \(code))"
             }
         }
     }
 
-    private func fail(_ message: String) { available = false; status = message }
+    static let shared = TrackpadActuator(access: PrivateActuatorAccess())
+
+    /// Cues closer than this are dropped so bursts of calendar or gesture
+    /// cues cannot stack into a buzz.
+    static let minimumGap: UInt64 = 40_000_000
+    /// After a failed acquisition, standard taps are used until this passes.
+    static let retryDelay: UInt64 = 30_000_000_000
+    /// The actuator is released after this long without a cue.
+    static let idleClose: UInt64 = 5_000_000_000
+
+    private let access: any ActuatorAccess
+    private let queue = DispatchQueue(label: "boringNotch.trackpadActuator")
+    private var lease: (any ActuatorLease)?
+    private var lastPulse: UInt64?
+    private var retryAfter: UInt64 = 0
+    private var idleGeneration = 0
+    private var wakeObserver: NSObjectProtocol?
+
+    init(access: any ActuatorAccess) {
+        self.access = access
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: nil
+        ) { [weak self] _ in self?.queue.async { self?.reset() } }
+    }
+
+    deinit {
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        _ = lease?.finish()
+    }
+
+    func request(strength: Double, bypassThrottle: Bool = false,
+                 completion: @escaping @MainActor (Outcome) -> Void) {
+        queue.async { [self] in
+            let now = DispatchTime.now().uptimeNanoseconds
+            let outcome = perform(strength: strength, now: now, bypassThrottle: bypassThrottle)
+            if lease != nil { scheduleIdleClose() }
+            DispatchQueue.main.async { completion(outcome) }
+        }
+    }
+
+    /// Opens without pulsing, for the Settings route label.
+    func checkRoute(completion: @escaping @MainActor (Outcome) -> Void) {
+        queue.async { [self] in
+            let outcome = ensureLease(now: DispatchTime.now().uptimeNanoseconds, force: true)
+            if lease != nil { scheduleIdleClose() }
+            DispatchQueue.main.async { completion(outcome ?? .played) }
+        }
+    }
+
+    // MARK: - Queue-confined core, called directly by tests
+
+    func perform(strength: Double, now: UInt64, bypassThrottle: Bool = false) -> Outcome {
+        if !bypassThrottle, let lastPulse, now &- lastPulse < Self.minimumGap { return .throttled }
+        if let failure = ensureLease(now: now, force: bypassThrottle) { return failure }
+        guard let lease else { return .unavailable("no actuator") }
+        let code = lease.pulse(strength: HapticStrength.clamped(strength))
+        if code != 0 {
+            // A stale or disconnected device: drop it so the next cue reacquires.
+            _ = lease.finish()
+            self.lease = nil
+            return .failed(code)
+        }
+        lastPulse = now
+        return .played
+    }
+
+    /// Returns nil when a lease is open, or the reason it is not.
+    func ensureLease(now: UInt64, force: Bool = false) -> Outcome? {
+        if lease != nil { return nil }
+        if !force, now < retryAfter { return .unavailable("retry pending") }
+        switch access.acquire() {
+        case .success(let opened):
+            lease = opened
+            retryAfter = 0
+            return nil
+        case .failure(let failure):
+            retryAfter = now &+ Self.retryDelay
+            return .unavailable(failure.message)
+        }
+    }
+
+    func reset() {
+        _ = lease?.finish()
+        lease = nil
+        retryAfter = 0
+        idleGeneration += 1
+    }
+
+    var hasOpenLease: Bool { lease != nil }
+
+    private func scheduleIdleClose() {
+        idleGeneration += 1
+        let generation = idleGeneration
+        queue.asyncAfter(deadline: .now() + .nanoseconds(Int(Self.idleClose))) { [self] in
+            guard generation == idleGeneration, let lease else { return }
+            _ = lease.finish()
+            self.lease = nil
+        }
+    }
 }
 
 /// Minimal lookup/lifetime adaptation from Mason Chen's MIT-licensed Tactile,
 /// a9b02a4e4fae6408058bd876e24accb52a864520. See THIRD_PARTY_LICENSES.
 /// Local arm64 ABI inspection found MTActuatorOpen has an additional UInt32
 /// argument. We pass zero explicitly and restrict use to the inspected OS build.
-@MainActor
-struct PrivateActuatorAccess: ExperimentalActuatorAccess {
+struct PrivateActuatorAccess: ActuatorAccess {
     var libraryPath = "/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport"
     var symbolLookup: (UnsafeMutableRawPointer, String) -> UnsafeMutableRawPointer? = { dlsym($0, $1) }
     var abiSupported = ProcessInfo.processInfo.operatingSystemVersionString.contains("Build 26B5101f")
@@ -126,13 +216,13 @@ struct PrivateActuatorAccess: ExperimentalActuatorAccess {
     fileprivate typealias Close = @convention(c) (UnsafeMutableRawPointer) -> Int32
     fileprivate typealias Actuate = @convention(c) (UnsafeMutableRawPointer, Int32, UInt32, Float, Float) -> Int32
 
-    func acquire() -> Result<any ExperimentalActuatorLease, HapticExperimentFailure> {
+    func acquire() -> Result<any ActuatorLease, HapticFailure> {
         #if arch(arm64)
         guard abiSupported else {
-            return .failure(.init(message: "Unavailable: private actuator ABI has not been checked on this OS build."))
+            return .failure(.init(message: "private actuator ABI not checked on this OS build"))
         }
         guard let library = dlopen(libraryPath, RTLD_NOW | RTLD_LOCAL) else {
-            return .failure(.init(message: "Unavailable: actuator library could not be loaded."))
+            return .failure(.init(message: "actuator library could not be loaded"))
         }
         var transferred = false
         defer { if !transferred { dlclose(library) } }
@@ -143,7 +233,7 @@ struct PrivateActuatorAccess: ExperimentalActuatorAccess {
               let openSymbol = symbolLookup(library, "MTActuatorOpen"),
               let closeSymbol = symbolLookup(library, "MTActuatorClose"),
               let pulseSymbol = symbolLookup(library, "MTActuatorActuate") else {
-            return .failure(.init(message: "Unavailable: required actuator symbols are missing."))
+            return .failure(.init(message: "required actuator symbols are missing"))
         }
         let list = unsafeBitCast(listSymbol, to: List.self)
         let getID = unsafeBitCast(idSymbol, to: DeviceID.self)
@@ -153,7 +243,7 @@ struct PrivateActuatorAccess: ExperimentalActuatorAccess {
         let close = unsafeBitCast(closeSymbol, to: Close.self)
         let pulse = unsafeBitCast(pulseSymbol, to: Actuate.self)
         guard let devices = list()?.takeRetainedValue() as? [AnyObject] else {
-            return .failure(.init(message: "Unavailable: trackpad enumeration failed."))
+            return .failure(.init(message: "trackpad enumeration failed"))
         }
         var candidates: [(UInt64, Bool)] = []
         for device in devices {
@@ -162,7 +252,6 @@ struct PrivateActuatorAccess: ExperimentalActuatorAccess {
             if getID(pointer, &id) == 0, id != 0 { candidates.append((id, isBuiltIn(pointer))) }
         }
         // Prefer the built-in trackpad. For external devices use a stable ID order.
-        // Only one successfully opened actuator receives a Test request.
         candidates.sort { $0.1 != $1.1 ? $0.1 : $0.0 < $1.0 }
         for (id, _) in candidates {
             guard let actuator = create(id) else { continue }
@@ -173,15 +262,14 @@ struct PrivateActuatorAccess: ExperimentalActuatorAccess {
             transferred = true
             return .success(PrivateActuatorLease(library: library, actuator: actuator, close: close, actuate: pulse))
         }
-        return .failure(.init(message: "Unavailable: no current trackpad actuator could be opened."))
+        return .failure(.init(message: "no current trackpad actuator could be opened"))
         #else
-        return .failure(.init(message: "Unavailable: private actuator ABI has not been checked on this architecture."))
+        return .failure(.init(message: "private actuator ABI not checked on this architecture"))
         #endif
     }
 }
 
-@MainActor
-private final class PrivateActuatorLease: ExperimentalActuatorLease {
+private final class PrivateActuatorLease: ActuatorLease {
     private var library: UnsafeMutableRawPointer?
     private var actuator: UnsafeMutableRawPointer?
     private let close: PrivateActuatorAccess.Close
@@ -192,7 +280,7 @@ private final class PrivateActuatorLease: ExperimentalActuatorLease {
     }
     func pulse(strength: Float) -> Int32 {
         guard let actuator else { return -1 }
-        // Fixed waveform 6, flags 0, duration scale 0. Zero never reaches here.
+        // Fixed waveform 6 (the strongest stock click), flags 0, duration scale 0.
         return actuate(actuator, 6, 0, strength, 0)
     }
     func finish() -> Int32 {
@@ -205,8 +293,5 @@ private final class PrivateActuatorLease: ExperimentalActuatorLease {
         if let library { dlclose(library); self.library = nil }
         return code
     }
-    deinit {
-        if let actuator { _ = close(actuator); Unmanaged<CFTypeRef>.fromOpaque(actuator).release() }
-        if let library { dlclose(library) }
-    }
+    deinit { _ = finish() }
 }

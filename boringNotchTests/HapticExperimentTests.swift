@@ -2,112 +2,107 @@ import Defaults
 import XCTest
 @testable import boringNotch
 
-@MainActor
 final class HapticExperimentTests: XCTestCase {
-    private final class Lease: ExperimentalActuatorLease {
+    private final class Lease: ActuatorLease {
         var pulses: [Float] = []
         var finishes = 0
         var result: Int32 = 0
-        var cleanup: Int32 = 0
         func pulse(strength: Float) -> Int32 { pulses.append(strength); return result }
-        func finish() -> Int32 { finishes += 1; return cleanup }
+        func finish() -> Int32 { finishes += 1; return 0 }
     }
-    private final class Access: ExperimentalActuatorAccess {
+    private final class Access: ActuatorAccess {
         var acquisitions = 0
-        var results: [Result<any ExperimentalActuatorLease, HapticExperimentFailure>] = []
-        func acquire() -> Result<any ExperimentalActuatorLease, HapticExperimentFailure> {
+        var results: [Result<any ActuatorLease, HapticFailure>] = []
+        func acquire() -> Result<any ActuatorLease, HapticFailure> {
             acquisitions += 1
             return results.isEmpty ? .failure(.init(message: "Disconnected")) : results.removeFirst()
         }
     }
+    private let ms: UInt64 = 1_000_000
 
-    func testPreferenceMigrationPersistenceAndInvalidValuesDoNotPulse() throws {
+    func testStrengthPreferenceDefaultsToUserPickAndPersists() throws {
         let name = "HapticTests\(UUID())"
         let suite = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { suite.removePersistentDomain(forName: name) }
-        // Namespace keys too, since Defaults registration can be shared by suites.
-        let master = Defaults.Key<Bool>(name + "_master", default: Defaults.Keys.enableHaptics.defaultValue, suite: suite)
-        let hover = Defaults.Key<Bool>(name + "_hover", default: Defaults.Keys.hapticHover.defaultValue, suite: suite)
-        let actions = Defaults.Key<Bool>(name + "_actions", default: Defaults.Keys.hapticActions.defaultValue, suite: suite)
-        let strength = Defaults.Key<String>(name + "_strength", default: Defaults.Keys.experimentalHapticStrength.defaultValue, suite: suite)
-        let access = Access(); let experiment = HapticExperiment(access: access)
-        XCTAssertTrue(Defaults[master]); XCTAssertTrue(Defaults[hover]); XCTAssertTrue(Defaults[actions])
-        XCTAssertEqual(HapticStrength.requested(Defaults[strength]), 0.2)
-        Defaults[master] = false; Defaults[hover] = false; Defaults[actions] = true; Defaults[strength] = "0.45"
+        let strength = Defaults.Key<Double>(name + "_strength", default: Defaults.Keys.hapticStrength.defaultValue, suite: suite)
+        XCTAssertEqual(Defaults[strength], 0.7)
+        XCTAssertEqual(HapticStrength.defaultValue, 0.7)
+        Defaults[strength] = 1.15
         suite.synchronize()
-        let reopened = try XCTUnwrap(UserDefaults(suiteName: name))
-        XCTAssertFalse(reopened.bool(forKey: master.name)); XCTAssertFalse(reopened.bool(forKey: hover.name))
-        XCTAssertTrue(reopened.bool(forKey: actions.name))
-        XCTAssertEqual(HapticStrength.requested(try XCTUnwrap(reopened.string(forKey: strength.name))), 0.45)
-        Defaults[strength] = "nan"
-        XCTAssertEqual(HapticStrength.requested(Defaults[strength]), 0.2)
-        suite.set(42, forKey: strength.name)
-        XCTAssertEqual(HapticStrength.requested(Defaults[strength]), 0.2)
-        XCTAssertEqual(access.acquisitions, 0)
-        XCTAssertFalse(experiment.available)
+        XCTAssertEqual(try XCTUnwrap(UserDefaults(suiteName: name)).double(forKey: strength.name), 1.15)
     }
 
-    func testOffMasterOffAndClampingAtActuatorBoundary() {
+    func testClampingKeepsValuesInSliderRange() {
+        XCTAssertEqual(HapticStrength.clamped(0), 0.1)
+        XCTAssertEqual(HapticStrength.clamped(-5), 0.1)
+        XCTAssertEqual(HapticStrength.clamped(1.3), 1.3)
+        XCTAssertEqual(HapticStrength.clamped(9), 2.0)
+        XCTAssertEqual(HapticStrength.clamped(.nan), 0.7)
+        XCTAssertEqual(HapticStrength.clamped(.infinity), 0.7)
+    }
+
+    func testCuesReuseOneOpenActuatorAtRequestedStrength() {
         let access = Access(); let lease = Lease(); access.results = [.success(lease)]
-        let experiment = HapticExperiment(access: access)
-        for value in [0.2, 0.45, 0.7, 100.0] { experiment.test(masterEnabled: false, requestedStrength: value) }
-        for value in [0.0, -1.0, -Double.infinity] {
-            // Nonfinite values fall back to the conservative default; master remains off.
-            experiment.test(masterEnabled: value.isFinite, requestedStrength: value)
-        }
-        XCTAssertEqual(access.acquisitions, 0)
-        experiment.test(masterEnabled: true, requestedStrength: 10)
-        XCTAssertEqual(lease.pulses, [0.7]); XCTAssertEqual(lease.finishes, 1)
-        XCTAssertEqual(HapticStrength.clamped(.nan), 0.2)
-        XCTAssertEqual(HapticStrength.clamped(.infinity), 0.2)
-        XCTAssertEqual(HapticStrength.requested("off"), 0)
-    }
-
-    func testOneExplicitRequestAndAvailabilityNeverPulses() {
-        let access = Access(); let check = Lease(); let test = Lease()
-        access.results = [.success(check), .success(test)]
-        let experiment = HapticExperiment(access: access)
-        experiment.checkAvailability()
-        XCTAssertTrue(experiment.available); XCTAssertTrue(check.pulses.isEmpty); XCTAssertEqual(check.finishes, 1)
-        // Preference editing/restoration has no callback into this controller.
-        for choice in HapticStrength.choices { _ = HapticStrength.requested(choice) }
+        let actuator = TrackpadActuator(access: access)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 0), .played)
+        XCTAssertEqual(actuator.perform(strength: 1.3, now: 100 * ms), .played)
         XCTAssertEqual(access.acquisitions, 1)
-        experiment.test(masterEnabled: true, requestedStrength: 0.45)
-        XCTAssertEqual(access.acquisitions, 2); XCTAssertEqual(test.pulses, [0.45]); XCTAssertEqual(test.finishes, 1)
-        XCTAssertTrue(experiment.status.contains("unverified"))
+        XCTAssertEqual(lease.pulses, [0.7, 1.3])
+        XCTAssertTrue(actuator.hasOpenLease)
     }
 
-    func testFailedActuationCleansUpWithoutRetryOrFallback() {
-        let access = Access(); let lease = Lease(); lease.result = -7
-        access.results = [.success(lease)]
-        let experiment = HapticExperiment(access: access)
-        experiment.test(masterEnabled: true, requestedStrength: 0.2)
-        XCTAssertEqual(lease.pulses.count, 1); XCTAssertEqual(lease.finishes, 1)
-        XCTAssertEqual(access.acquisitions, 1); XCTAssertFalse(experiment.available)
-        XCTAssertTrue(experiment.status.contains("-7"))
+    func testBurstsAreThrottledButPreviewBypasses() {
+        let access = Access(); let lease = Lease(); access.results = [.success(lease)]
+        let actuator = TrackpadActuator(access: access)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 0), .played)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 10 * ms), .throttled)
+        XCTAssertFalse(TrackpadActuator.Outcome.throttled.needsFallback)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 20 * ms, bypassThrottle: true), .played)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 70 * ms), .played)
+        XCTAssertEqual(lease.pulses.count, 3)
     }
 
-    func testDisconnectInvalidatesAvailabilityAndExplicitRecheckReacquires() {
-        let access = Access(); let before = Lease(); let after = Lease(); let pulse = Lease()
-        access.results = [.success(before), .failure(.init(message: "Disconnected")), .success(after), .success(pulse)]
-        let experiment = HapticExperiment(access: access)
-        experiment.checkAvailability()
-        experiment.test(masterEnabled: true, requestedStrength: 0.2)
-        XCTAssertFalse(experiment.available); XCTAssertTrue(before.pulses.isEmpty)
-        experiment.checkAvailability(); XCTAssertTrue(experiment.available)
-        experiment.test(masterEnabled: true, requestedStrength: 0.2)
-        XCTAssertEqual(pulse.pulses, [0.2]); XCTAssertEqual(before.finishes, 1)
-        XCTAssertEqual(after.finishes, 1); XCTAssertTrue(after.pulses.isEmpty)
+    func testUnavailableRouteFallsBackAndWaitsBeforeRetrying() {
+        let access = Access()
+        access.results = [.failure(.init(message: "no device"))]
+        let actuator = TrackpadActuator(access: access)
+        let first = actuator.perform(strength: 0.7, now: 0)
+        XCTAssertEqual(first, .unavailable("no device")); XCTAssertTrue(first.needsFallback)
+        // Ordinary cues inside the retry window do not rescan.
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 1_000 * ms), .unavailable("retry pending"))
+        XCTAssertEqual(access.acquisitions, 1)
+        let lease = Lease(); access.results = [.success(lease)]
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: TrackpadActuator.retryDelay + 1), .played)
+        XCTAssertEqual(access.acquisitions, 2)
     }
 
-    func testUnavailableFailuresRemainVisibleAndSilent() {
-        for reason in ["Missing library", "Missing symbol", "Enumeration failed", "No device"] {
-            let access = Access(); access.results = [.failure(.init(message: reason))]
-            let experiment = HapticExperiment(access: access)
-            experiment.test(masterEnabled: true, requestedStrength: 0.2)
-            XCTAssertFalse(experiment.available); XCTAssertEqual(experiment.status, reason)
-            XCTAssertEqual(access.acquisitions, 1)
-        }
+    func testFailedPulseDropsStaleActuatorAndNextCueReacquires() {
+        let access = Access(); let stale = Lease(); stale.result = -7; let fresh = Lease()
+        access.results = [.success(stale), .success(fresh)]
+        let actuator = TrackpadActuator(access: access)
+        let outcome = actuator.perform(strength: 0.7, now: 0)
+        XCTAssertEqual(outcome, .failed(-7)); XCTAssertTrue(outcome.needsFallback)
+        XCTAssertEqual(stale.finishes, 1); XCTAssertFalse(actuator.hasOpenLease)
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 100 * ms), .played)
+        XCTAssertEqual(fresh.pulses, [0.7]); XCTAssertEqual(access.acquisitions, 2)
+    }
+
+    func testResetReleasesActuatorAndClearsRetryWindow() {
+        let access = Access(); let lease = Lease()
+        access.results = [.failure(.init(message: "asleep")), .success(lease)]
+        let actuator = TrackpadActuator(access: access)
+        _ = actuator.perform(strength: 0.7, now: 0)
+        actuator.reset()
+        XCTAssertEqual(actuator.perform(strength: 0.7, now: 100 * ms), .played)
+        actuator.reset()
+        XCTAssertEqual(lease.finishes, 1); XCTAssertFalse(actuator.hasOpenLease)
+    }
+
+    func testRouteCheckOpensWithoutPulsing() {
+        let access = Access(); let lease = Lease(); access.results = [.success(lease)]
+        let actuator = TrackpadActuator(access: access)
+        XCTAssertNil(actuator.ensureLease(now: 0, force: true))
+        XCTAssertTrue(lease.pulses.isEmpty); XCTAssertTrue(actuator.hasOpenLease)
     }
 
     func testActualLookupFailurePaths() {
@@ -138,15 +133,6 @@ final class HapticExperimentTests: XCTestCase {
             if case .failure(let failure) = access.acquire() { XCTAssertTrue(failure.message.contains(expected)) }
             else { XCTFail("An empty scan must never supply a lease") }
         }
-    }
-
-    func testCleanupFailureDisablesExperiment() {
-        let access = Access(); let lease = Lease(); lease.cleanup = -9
-        access.results = [.success(lease)]
-        let experiment = HapticExperiment(access: access)
-        experiment.checkAvailability()
-        XCTAssertFalse(experiment.available); XCTAssertTrue(lease.pulses.isEmpty)
-        XCTAssertEqual(lease.finishes, 1); XCTAssertTrue(experiment.status.contains("-9"))
     }
 
     func testCurrentUnsignedHostCanAcquireAndReleaseWithoutPulse() throws {
