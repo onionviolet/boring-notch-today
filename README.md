@@ -125,6 +125,8 @@ selective reliability fixes, and optional additions considered for this fork.
 - [ ] Lock Screen Widgets 🔒
 - [ ] Extension system 🧩
 - [ ] Notifications (under consideration) 🔔
+- [ ] Timed Today deadline banners in the notch ([feature backlog](docs/Today.md#feature-backlog))
+- [ ] Today deadline countdowns, submission checkpoints, wake-up catch-up, task focus timers and quiet hours ([related feature backlog](docs/Today.md#related-today-features))
 <!-- - [ ] Clipboard history manager 📌 `Extension` -->
 <!-- - [ ] Download indicator of different browsers (Safari, Chromium browsers, Firefox) 🌍 `Extension`-->
 <!-- - [ ] Customizable function buttons 🎛️ -->

@@ -22,7 +22,8 @@ struct TodayView: View {
                 }
             }
         }
-        .frame(width: 430)
+        // Fit the space below the notch header so the scroll viewport stays inside the panel.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear { store.start() }
     }
 
@@ -111,7 +112,11 @@ struct TodayView: View {
                                         .font(.subheadline.weight(.semibold))
                                         .fixedSize(horizontal: false, vertical: true)
                                     Spacer(minLength: 8)
-                                    Text(row.time).font(.caption).foregroundStyle(.secondary).fixedSize()
+                                    Text(row.time)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(maxWidth: 150, alignment: .trailing)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }.padding(.vertical, 2)
                         }
@@ -134,9 +139,8 @@ struct TodayView: View {
                 .padding(14)
                 .background(TodayScrollPositionKeeper(defaultsKey: "today.scrollOffset"))
             }
-            .frame(minHeight: 40, maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
         }
-        .frame(height: 150)
     }
 
     private func updateLabel(_ date: Date, at now: Date) -> String {

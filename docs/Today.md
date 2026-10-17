@@ -53,6 +53,8 @@ The Refresh button writes only a bounded local request containing schema version
 The developer-only `--today-preview-window` argument renders the same `TodayView` used inside the notch.
 Start and the update age stay above the scrollable task list. Task rows expand to show their purpose, method, urgency, completion criteria, and basis. Hover over the connection label for technical details.
 
+Today opens at 640 × 300 points; the other tabs retain their 640 × 190 size. Switching tabs resizes the panel. The Today view fills the available width and height below the tab bar, keeping the scroll viewport inside the rounded bottom edge. Long time labels wrap in a trailing column rather than squeezing task titles.
+
 The Today pane remembers its last scroll position and restores it after the pane or app is reopened, so details such as assigned page ranges stay where the reader left them.
 
 ## Contract v1
@@ -90,6 +92,30 @@ The parent directory is owner-only (`0700`) and the payload is owner-only (`0600
 
 Anki is explicit: `available` can carry `reviewedToday` and `newCards`; `unavailable` renders “Anki is not running” and does not pretend counts are zero.
 
+## Feature backlog
+
+### Timed Today deadline banners
+
+Requested October 12, 2026. Status: backlog, not implemented.
+
+Show a banner in the notch when a Today deadline's reminder time arrives, without requiring the user to open the Today tab. Use explicit deadline and reminder timestamps published from the planning vault, which remains the task authority. Required work and optional work should be visibly distinct.
+
+Example: for CSCI Lab 05 and the two optional extra-credit uploads due October 12 at 22:00 Eastern, show a 19:00 preparation reminder and a 21:30 final submission reminder. The banner should name the work, show the deadline and offer a route to its Today card or source.
+
+Acceptance: banners appear once at each configured time while the app is running; dismissing or snoozing never marks work complete. Define behavior for sleep/wake, app restart, changed or removed deadlines, stale snapshots and multiple reminders due together before implementation. Keep scheduling local and avoid duplicate banners after a refresh. Sound and native macOS notification fallback are optional design choices, not requirements yet. The payload schema needs an explicit extension; free-text card labels must not become scheduling inputs.
+
+### Related Today features
+
+Saved to the backlog at the user's request October 12, 2026. All five remain unimplemented. O1 and O2 are the first candidates alongside timed banners; O3 belongs with banner reliability. This order is a recommendation, not an implementation schedule.
+
+| ID | Feature | Intended behavior | Acceptance or design boundary |
+|---|---|---|---|
+| O1 | Deadline countdown | Show a compact countdown in the closed notch, such as `CS Lab · 2h 15m left`. Put required work ahead of optional work. | Use explicit deadline timestamps; handle expired, changed and stale deadlines without implying completion. |
+| O2 | Submission checkpoint | Before cutoff, remind the user to check all required files and the final receipt, with a button to open the submission site. | Opening the site or dismissing the checkpoint never counts as submission or completion. |
+| O3 | Wake-up catch-up | After sleep or app restart, combine missed reminders into one useful banner instead of replaying each one. | Coalesce reminders and avoid duplicates; distinguish an upcoming deadline from one already passed. |
+| O4 | Per-task focus timer | Start a 25-minute work session from a Today card and show the task and remaining time in the notch. | Timer state is local session state; finishing a timer never marks the vault task complete. |
+| O5 | Quiet hours and urgency | Suppress routine nudges during class or recovery, while allowing explicitly chosen hard-deadline alerts through. | Let the user choose quiet periods and which alerts may interrupt; optional work does not become urgent automatically. |
+
 ## Action boundary
 
 Only two payload action kinds exist. A `source` action requires HTTPS with a host and rejects local paths, custom schemes, and URL credentials. `itembank` carries no path, command, or URL. It asks macOS to launch only the fixed bundle identifier `dev.itembank`; if that app is absent, the tab reports it as unavailable. Neither action can mark work complete.
@@ -113,3 +139,7 @@ xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Rel
 To clear the view, quit Boring Notch and move `payload.json` to a backup location; the next launch shows the empty state. To restore a previous plan, republish the saved JSON through the validator. Do not edit the live file in place. Remove the `boring-notch-today` MCP entry with the Codex MCP settings or CLI when the bridge is no longer wanted.
 
 Keep `upstream` pointed at `https://github.com/TheBoredTeam/boring.notch.git`. Before an upstream merge, fetch it, build the integration branch, merge or rebase deliberately, resolve the three Today wiring points (`NotchViews`, `TabSelectionView`, and `ContentView`), then rerun the focused payload test and release build. This derivative remains GPL-3.0 under the upstream `LICENSE`; retain upstream notices and provide corresponding source when distributing builds.
+
+The notch layout anchors its content at the top. Today receives the panel height
+minus the header and bottom inset, so long plans scroll inside the remaining
+space rather than pushing the tab row above the display.

@@ -118,7 +118,7 @@ struct ContentView: View {
                     )
                 
                 mainLayout
-                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil)
+                    .frame(height: vm.notchState == .open ? vm.notchSize.height : nil, alignment: .top)
                     .conditionalModifier(true) { view in
                         let openAnimation = Animation.spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
                         let closeAnimation = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
@@ -248,7 +248,7 @@ struct ContentView: View {
 
     @ViewBuilder
     func NotchLayout() -> some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading) {
                 if coordinator.helloAnimationRunning {
                     Spacer()
@@ -355,6 +355,8 @@ struct ContentView: View {
                         ShelfView()
                     case .today:
                         TodayView()
+                            // Reserve the tab row and bottom inset before laying out the scroll viewport.
+                            .frame(height: max(0, vm.notchSize.height - max(24, vm.effectiveClosedNotchHeight) - 12))
                     }
                 }
                 .transition(

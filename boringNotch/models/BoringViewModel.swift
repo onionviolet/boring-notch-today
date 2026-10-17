@@ -59,6 +59,16 @@ class BoringViewModel: NSObject, ObservableObject {
         notchSize = getClosedNotchSize(screenUUID: screenUUID)
         closedNotchSize = notchSize
 
+        coordinator.$currentView
+            .removeDuplicates()
+            .sink { [weak self] view in
+                guard let self, self.notchState == .open else { return }
+                withAnimation(.smooth) {
+                    self.notchSize = view == .today ? todayNotchSize : openNotchSize
+                }
+            }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest3($dropZoneTargeting, $dragDetectorTargeting, $generalDropTargeting)
             .map { shelf, drag, general in
                 shelf || drag || general
@@ -190,7 +200,7 @@ class BoringViewModel: NSObject, ObservableObject {
     }
 
     func open() {
-        self.notchSize = openNotchSize
+        self.notchSize = coordinator.currentView == .today ? todayNotchSize : openNotchSize
         self.notchState = .open
         
         // Force music information update when notch is opened
