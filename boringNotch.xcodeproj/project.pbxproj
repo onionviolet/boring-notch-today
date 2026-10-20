@@ -798,6 +798,7 @@
 		B186542F2C6F455E000B926A /* Notch */ = {
 			isa = PBXGroup;
 			children = (
+				D8B78717F39D486190A1E34C /* PowerStatusNotice.swift */,
 				AA01NLA22E7A0001 /* NotificationLiveActivity.swift */,
 				AA06CHV22E7A0001 /* CompactHomeView.swift */,
 				AA04LAS22E7A0001 /* LiveActivityStack.swift */,
@@ -1072,6 +1073,7 @@
 				14A7E5882C64A89C008C1BE9 /* HelloAnimation.swift in Sources */,
 				1153BD8F2D986B1F00979FB0 /* MediaControllerProtocol.swift in Sources */,
 				11985BF42F38520A00F81585 /* DraggableProgressBar.swift in Sources */,
+				A330CD0EA12B4CD187E237FA /* PowerStatusNotice.swift in Sources */,
 				9AB0C6BD2C73C9CB00F7CD30 /* NotchHomeView.swift in Sources */,
 				D0A200132026101300000001 /* PowerStatusNotice.swift in Sources */,
 				B172AAC02C95DA0B001623F1 /* InlineOSD.swift in Sources */,
@@ -1600,7 +1602,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = exactVersion;
-				version = 2.9.6;
+				version = 2.10.0;
 			};
 		};
 		9A987A0E2C73CA8D005CA465 /* XCRemoteSwiftPackageReference "swift-collections" */ = {
@@ -1608,7 +1610,7 @@
 			repositoryURL = "https://github.com/apple/swift-collections.git";
 			requirement = {
 				kind = exactVersion;
-				version = 1.7.1;
+				version = 1.7.3;
 			};
 		};
 		9A987A112C73CAA1005CA465 /* XCRemoteSwiftPackageReference "Pow" */ = {

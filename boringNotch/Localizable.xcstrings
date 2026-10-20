@@ -1893,6 +1893,12 @@
             "value" : "Vitesse d'animation"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מהירות ההנפשה"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -2159,9 +2165,7 @@
         }
       }
     },
-    "Audio is processed locally for the visualizer and never recorded, stored, or shared." : {
-
-    },
+    "Audio is processed locally for the visualizer and never recorded, stored, or shared." : {},
     "Audio output" : {
       "localizations" : {
         "es" : {
@@ -2333,6 +2337,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automatique"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מצב אוטומטי"
           }
         },
         "it" : {
@@ -2827,6 +2837,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rétro-éclairage"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "תאורת מקשים"
           }
         },
         "it" : {
@@ -3475,6 +3491,12 @@
             "state" : "translated",
             "value" : "Beta"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בטא"
+          }
         }
       }
     },
@@ -3613,9 +3635,7 @@
         }
       }
     },
-    "Boring Notch can analyze the audio playing from your music app to draw a live FFT waveform in the notch, with only a minimal impact on CPU usage." : {
-
-    },
+    "Boring Notch can analyze the audio playing from your music app to draw a live FFT waveform in the notch, with only a minimal impact on CPU usage." : {},
     "Boring Notch can check for updates in the background. You can still check manually from the menu bar at any time." : {
       "comment" : "A description of the software update permission.",
       "localizations" : {
@@ -3635,6 +3655,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Boring Notch peut vérifier les mises à jour en arrière-plan. Vous pouvez toujours vérifier manuellement à partir de la barre de menus à tout moment."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boring notch יכול לבדוק עדכונים ברקע. אתה עדיין יכול בכל עת לבדוק ידנית בשורת התפריט."
           }
         },
         "it" : {
@@ -3687,12 +3713,8 @@
         }
       }
     },
-    "Boring Notch can show all your upcoming events in one place. Access to your calendar is needed to display your schedule." : {
-
-    },
-    "Boring Notch can show your scheduled reminders alongside your calendar events. Access to Reminders is needed to display your reminders." : {
-
-    },
+    "Boring Notch can show all your upcoming events in one place. Access to your calendar is needed to display your schedule." : {},
+    "Boring Notch can show your scheduled reminders alongside your calendar events. Access to Reminders is needed to display your reminders." : {},
     "Boring Notch could not verify Now Playing. Try again, or reopen the app if it keeps happening." : {
       "comment" : "Recoverable Now Playing probe failure message.",
       "localizations" : {
@@ -3734,9 +3756,7 @@
         }
       }
     },
-    "Boring Notch includes a mirror feature that lets you quickly check your appearance using your camera, right from the notch. Camera access is required only to show this live preview. You can turn the mirror feature on or off at any time in the app." : {
-
-    },
+    "Boring Notch includes a mirror feature that lets you quickly check your appearance using your camera, right from the notch. Camera access is required only to show this live preview. You can turn the mirror feature on or off at any time in the app." : {},
     "Boring Notch lost its Now Playing connection. Reconnecting automatically..." : {
       "comment" : "Now Playing runtime failure message shown before an automatic recovery attempt.",
       "localizations" : {
@@ -3784,9 +3804,7 @@
         }
       }
     },
-    "Boring Notch Settings" : {
-
-    },
+    "Boring Notch Settings" : {},
     "Boring Notch's Now Playing components are unavailable. Reopen or reinstall the app." : {
       "comment" : "Now Playing setup failure message shown when required bundled components cannot be used.",
       "localizations" : {
@@ -3954,6 +3972,12 @@
             "value" : "Luminosité"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בהירות"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -4111,6 +4135,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Intégré"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מובנה"
           }
         },
         "it" : {
@@ -4567,6 +4597,12 @@
             "state" : "translated",
             "value" : "Kamera"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מצלמה"
+          }
         }
       }
     },
@@ -4783,7 +4819,7 @@
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Média változtatása gesztusokkal."
+            "value" : "Média változtatása gesztusokkal"
           }
         },
         "it" : {
@@ -4878,6 +4914,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La modification de la langue nécessite le redémarrage de l'application."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "שינוי שפת האפליקציה דורש הפעלה מחדש של ה Boring notch."
           }
         },
         "it" : {
@@ -5072,6 +5114,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chargement de la batterie"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מטעין"
           }
         },
         "it" : {
@@ -5292,6 +5340,12 @@
             "state" : "translated",
             "value" : "Tekrar Kontrol Et"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בדוק שוב"
+          }
         }
       }
     },
@@ -5313,6 +5367,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vérifier les mises à jour automatiquement"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בדוק עדכונים אוטומטית"
           }
         },
         "it" : {
@@ -5424,7 +5484,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "アップデートを確認..."
+            "value" : "アップデートを確認…"
           }
         },
         "ko" : {
@@ -5837,6 +5897,12 @@
             "state" : "translated",
             "value" : "Uygulama seç"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בחר יישום"
+          }
         }
       }
     },
@@ -5952,9 +6018,7 @@
         }
       }
     },
-    "Choose files to share via %@" : {
-
-    },
+    "Choose files to share via %@" : {},
     "Choose how the calendar is displayed in the notch." : {
       "comment" : "A description of the settings for the calendar.",
       "localizations" : {
@@ -6269,6 +6333,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Temizle"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "נקי"
           }
         }
       }
@@ -6889,6 +6959,12 @@
             "state" : "translated",
             "value" : "Kompakt mod"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מצב מכווץ"
+          }
         }
       }
     },
@@ -7053,6 +7129,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sıkıştırma:"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "דחיסה:"
           }
         }
       }
@@ -7430,6 +7512,12 @@
             "state" : "translated",
             "value" : "Dönüştür"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "המרה"
+          }
         }
       }
     },
@@ -7469,6 +7557,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Resmi Dönüştür"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "המר תמונה"
           }
         }
       }
@@ -7865,6 +7959,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toplantı Bağlantısını Kopyala"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "העתק קישור הזמנה"
           }
         }
       }
@@ -8658,6 +8758,12 @@
             "state" : "translated",
             "value" : "Özel..."
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מותאם אישית"
+          }
         }
       }
     },
@@ -9359,7 +9465,21 @@
       }
     },
     "Display behavior" : {
-      "comment" : "The title of a picker that lets the user choose how the app displays itself."
+      "comment" : "The title of a picker that lets the user choose how the app displays itself.",
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comportement de l'affichage"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schermgedrag"
+          }
+        }
+      }
     },
     "Displays" : {
       "localizations" : {
@@ -9398,6 +9518,12 @@
             "state" : "translated",
             "value" : "Ekranlar"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מסכים"
+          }
         }
       }
     },
@@ -9420,6 +9546,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Télécharger et installer les mises à jour automatiquement"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הורד והתקן עדכונים אוטומטית"
           }
         },
         "it" : {
@@ -9619,7 +9751,7 @@
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A sorrend módosításához húzza az elemeket az előnézetben, vagy dobjon be újakat a palettáról."
+            "value" : "A sorrend módosításához húzza az elemeket az előnézetben, vagy dobjon be újakat a palettáról"
           }
         },
         "it" : {
@@ -9643,7 +9775,7 @@
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sleep items in het voorbeeld om ze te sorteren of weg te halen."
+            "value" : "Sleep items in het voorbeeld om ze te sorteren of weg te halen"
           }
         },
         "pl" : {
@@ -9673,7 +9805,7 @@
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Перетягніть елементи в попередньому перегляді, щоб змінити їх порядок або видалити з палітри."
+            "value" : "Перетягніть елементи в попередньому перегляді, щоб змінити їх порядок або видалити з палітри"
           }
         },
         "zh-Hans" : {
@@ -10170,12 +10302,8 @@
         }
       }
     },
-    "Enable Calendar Access" : {
-
-    },
-    "Enable Camera Access" : {
-
-    },
+    "Enable Calendar Access" : {},
+    "Enable Camera Access" : {},
     "Enable gestures" : {
       "localizations" : {
         "cs" : {
@@ -10589,12 +10717,8 @@
         }
       }
     },
-    "Enable Real-Time Audio" : {
-
-    },
-    "Enable Reminders Access" : {
-
-    },
+    "Enable Real-Time Audio" : {},
+    "Enable Reminders Access" : {},
     "Enable shelf" : {
       "localizations" : {
         "cs" : {
@@ -10912,7 +11036,7 @@
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Élvezd "
+            "value" : "Élvezd a szabadidődet!"
           }
         },
         "it" : {
@@ -11020,6 +11144,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Olaylar"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "אירועים"
           }
         }
       }
@@ -11404,6 +11534,12 @@
             "state" : "translated",
             "value" : "Favori"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מועדפים"
+          }
         }
       }
     },
@@ -11438,6 +11574,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Özellikler"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "תכונות"
           }
         }
       }
@@ -11477,7 +11619,7 @@
         "hu" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A polcra húzott fájlokat ez a szolgáltatás fogja megosztani."
+            "value" : "A polcra húzott fájlokat ez a szolgáltatás fogja megosztani"
           }
         },
         "it" : {
@@ -11710,6 +11852,12 @@
             "state" : "translated",
             "value" : "Videoyu çevir"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הפוך וידאו"
+          }
         }
       }
     },
@@ -11750,6 +11898,12 @@
             "state" : "translated",
             "value" : "Biçim:"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "פורמט:"
+          }
         }
       }
     },
@@ -11789,6 +11943,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "15 saniye ileri sar"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הרץ קדימה 15 ש׳"
           }
         }
       }
@@ -11837,6 +11997,12 @@
             "state" : "translated",
             "value" : "Çerçeve şekli"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "גודל פריים"
+          }
         }
       }
     },
@@ -11871,6 +12037,12 @@
             "state" : "translated",
             "value" : "Tüm Uygulamalardan"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מכל האפליקצייות"
+          }
         }
       }
     },
@@ -11898,6 +12070,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Charge complète"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "טעינה מלאה"
           }
         },
         "it" : {
@@ -12335,6 +12513,12 @@
             "state" : "translated",
             "value" : "Hareketler"
           }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מחוות מגע"
+          }
         }
       }
     },
@@ -12486,6 +12670,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "GitHub"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "גיטאב"
           }
         },
         "it" : {
@@ -12758,6 +12948,12 @@
             "value" : "Accorder l'accès"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הענק גישה"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -12844,6 +13040,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Yardımcı Servis Kullanılamıyor"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "שירות התוסף תמיכה אינו זמין"
           }
         }
       }
@@ -14560,6 +14762,12 @@
             "value" : "Interaction"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "אינטראקציות"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -14703,6 +14911,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder Boring Notch à jour"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "השאר את Boring Notch מעודכן"
           }
         },
         "it" : {
@@ -14939,6 +15153,12 @@
             "value" : "Langue"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "שפה"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -15061,6 +15281,12 @@
             "value" : "Plus tard"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "אחר כך"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -15141,6 +15367,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lancer au démarrage"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "פתח בהפעלת המחשב"
           }
         },
         "it" : {
@@ -15575,12 +15807,8 @@
         }
       }
     },
-    "Low Power: Off" : {
-
-    },
-    "Low Power: On" : {
-
-    },
+    "Low Power: Off" : {},
+    "Low Power: On" : {},
     "Lunar is not installed or not reachable" : {
       "comment" : "Text displayed in a warning banner at the top of the screen when Lunar is not installed or not reachable.",
       "localizations" : {
@@ -16393,6 +16621,12 @@
             "value" : "Capacité maximale : Indisponible"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "קיבולת מקסימלית: לא אפשרי"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -17175,6 +17409,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Micro"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מיקרופון"
           }
         },
         "it" : {
@@ -18628,6 +18868,12 @@
             "value" : "Normaliser la direction des gestes"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "איפוס כיוון המחווה"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -18708,6 +18954,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pas en charge"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "לא בטעינה"
           }
         },
         "it" : {
@@ -18948,6 +19200,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Animation de l'encoche"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "אנימציית המגרעת"
           }
         },
         "it" : {
@@ -19324,6 +19582,12 @@
             "value" : "« À l'écoute »"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "מתנגן כעת"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -19532,9 +19796,7 @@
         }
       }
     },
-    "Onboarding" : {
-
-    },
+    "Onboarding" : {},
     "Only Apple displays are supported. In multi-display setups, the brightness OSD appears on the active display if supported, or on another supported display otherwise." : {
       "comment" : "Tooltip for the brightness OSD warning.",
       "localizations" : {
@@ -20708,6 +20970,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OSD"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "תצוגת מסך (OSD)"
           }
         },
         "it" : {
@@ -22729,7 +22997,7 @@
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Acceso a Recordatorios denegado. Conceda acceso en Configuración del Sistema"
+            "value" : "Acceso a Recordatorios denegado. Conceda acceso en Configuración del Sistema."
           }
         },
         "fr" : {
@@ -23533,6 +23801,12 @@
             "value" : "Remplacer les affichages OSD du système"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "החלף את ה-OSD של המערכת"
+          }
+        },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24008,6 +24282,12 @@
             "value" : "Redémarrer maintenant"
           }
         },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הפעל מחדש כעת"
+          }
+        },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
@@ -24082,6 +24362,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Redémarrer pour changer la langue"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הפעל מחדש בכדי להחיל את שינוי שפת המערכת"
           }
         },
         "it" : {
@@ -24210,9 +24496,7 @@
         }
       }
     },
-    "Select Files for %@" : {
-
-    },
+    "Select Files for %@" : {},
     "Select the music source you want to use. You can change this later in the app settings." : {
       "localizations" : {
         "cs" : {
@@ -26242,6 +26526,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Afficher l'OSD encoche ouverte"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "הצג HUD במגרעת פתוחה"
           }
         },
         "ja" : {
@@ -29011,7 +29301,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lorsque l'option **Ouvrir l'encoche au survol** est désactivée, balayez deux doigts vers le bas ou le haut pour ouvrir ou fermer l'encoche "
+            "value" : "Lorsque l'option **Ouvrir l'encoche au survol** est désactivée, balayez deux doigts vers le bas ou le haut pour ouvrir ou fermer l'encoche"
           }
         },
         "he" : {
@@ -29071,7 +29361,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "**Fareyi üzerine getirdiğinde aç** seçeneği devre dışı bırakıldığında, kapatmak için çentiği iki parmağınızla yukarı kaydırın, açmak için çentiği iki parmağınızla aşağı kaydırın."
+            "value" : "**Fareyi üzerine getirdiğinde aç** seçeneği devre dışı bırakıldığında, kapatmak için çentiği iki parmağınızla yukarı kaydırın, açmak için çentiği iki parmağınızla aşağı kaydırın"
           }
         },
         "uk" : {
@@ -29437,9 +29727,7 @@
         }
       }
     },
-    "Unplugged" : {
-
-    },
+    "Unplugged" : {},
     "Update channel" : {
       "comment" : "Software updates channel picker label",
       "localizations" : {
@@ -31581,12 +31869,8 @@
         }
       }
     },
-    "Your calendar data is only used to show your events and is never shared." : {
-
-    },
-    "Your camera is never used without your consent, and nothing is recorded or stored." : {
-
-    },
+    "Your calendar data is only used to show your events and is never shared." : {},
+    "Your camera is never used without your consent, and nothing is recorded or stored." : {},
     "Your macOS system accent color" : {
       "localizations" : {
         "de" : {
@@ -31699,9 +31983,7 @@
         }
       }
     },
-    "Your reminders data is only used to show your reminders and is never shared." : {
-
-    },
+    "Your reminders data is only used to show your reminders and is never shared." : {},
     "YouTube Music" : {
       "comment" : "YouTube Music service name.",
       "localizations" : {
