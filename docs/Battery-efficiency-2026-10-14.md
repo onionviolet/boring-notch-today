@@ -113,6 +113,14 @@ Commands and results: `work/battery-efficiency/install_candidate.py`, `install.l
 
 The proportional more-to-consider pass retained the remaining gate: install/launch proves package identity and process survival, not visible waveform demand, physical camera teardown, lock/display/system sleep recovery, human acceptance, or battery savings. Native observation is still needed to validate those behavior paths. F4/F6/F10, FFT cadence/leeway, and failure backoff remain deferred; installation does not promote them to accepted changes.
 
+## Sleep/wake follow-up, October 20, 2026
+
+Reviewing the installed app's remaining lifecycle gate exposed a waveform gap: `AudioCaptureManager` had no system-sleep observer, so Core Audio could stop its tap while the manager retained stale capture state after wake. It now queues capture teardown on `NSWorkspace.willSleepNotification` and re-evaluates current playback, preference and visible-consumer demand on `NSWorkspace.didWakeNotification`. Camera demand/intent handling and `CameraSessionEngine`'s existing system-sleep teardown and wake reconciliation remain in place.
+
+Validation: `python3 tests/run_battery_efficiency.py` PASS, including the existing 31 camera lifecycle regressions; unsigned Release build PASS at `work/DerivedData-sleep-resume`; `git diff --check` PASS. Installed at `/Applications/Boring Notch.app`, full bundle manifest matched the candidate, launched as PID 6198 and remained alive for at least 10 seconds. Executable SHA-256: `d3f555de19f3181c22bb3bc3745f2bdda1a9250db659d1e816f778df4244aa54`; receipt: `work/install-sleep-resume-20261020/receipt.json`. The update's previous bundle was removed after the launch check.
+
+Open: this avoided a real sleep, lock, camera activation, and foreground visibility changes. Physical waveform hide/resume, camera hide/resume, actual Core Audio tap/FFT recovery, camera stream recovery, and human visual acceptance remain unverified. Installation and synthetic lifecycle checks do not establish those native outcomes or battery savings.
+
 Superseded current-state lines from `CLAUDE.md`, retained verbatim as history:
 
 > - `main` (`5018a28`, local only, **not pushed**) holds everything: the October 9 upstream/dev merge as a real two-parent merge (`8cb7662`, upstream side `dee29a6`), then O5 haptics, O6 compact glance, O7 Today preferences and O8 presets (`67c11ce`), then docs. The primary checkout at this path is on `main` and is the build source again. D-hall remains a separate fourth tab.

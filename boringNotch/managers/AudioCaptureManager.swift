@@ -43,6 +43,7 @@ final class AudioCaptureManager: ObservableObject {
     @Published private(set) var isCapturing: Bool = false
 
     private var cancellables = Set<AnyCancellable>()
+    private var powerObservers: [NSObjectProtocol] = []
 
     private var tapObjectID: AudioObjectID = kAudioObjectUnknown
     private var aggregateDeviceID: AudioDeviceID = 0
@@ -113,6 +114,9 @@ final class AudioCaptureManager: ObservableObject {
     }
 
     deinit {
+        for observer in powerObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
         syncOnLifecycleQueue {
             stopCaptureOnLifecycleQueue()
         }
@@ -173,6 +177,25 @@ final class AudioCaptureManager: ObservableObject {
 
     @MainActor
     private func observeState() {
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        powerObservers.append(workspaceCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Core Audio can tear down the tap while the machine sleeps. Stop
+            // our side too, so `isCapturing` and the tap IDs cannot stay stale.
+            self?.stopCaptureAsync()
+        })
+        powerObservers.append(workspaceCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Re-resolve the player PIDs and create a fresh tap after wake.
+            self?.reevaluateDemand()
+        })
+
         // MusicManager is @MainActor — wire the publishers on the main
         // actor; delivery then continues via receive(on:) as before.
         Task { @MainActor in
