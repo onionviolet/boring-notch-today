@@ -28,12 +28,47 @@ struct DHallMenuTests {
         let snapshot = DHallMenu(date: "2026-10-08", checkedAt: midnight, meals: [.init(id: 42, name: "Lunch", items: items)])
         let decoded = try JSONDecoder().decode(DHallMenu.self, from: JSONEncoder().encode(snapshot))
         precondition(decoded.meals[0].items[0].name == "Chef's Pasta")
-        print("D-hall parser, missing-date, entity, Eastern midnight and cache roundtrip checks passed")
+        func item(_ name: String, _ station: String = "Lex Grill") -> DHallMenu.Item { .init(id: 1, station: station, name: name, serving: "") }
+        let words = ["steak", "short rib"]
+        precondition(DHallStore.matchesKeyword(item("Grilled Flank Steak"), words))
+        precondition(DHallStore.matchesKeyword(item("Braised Short Ribs"), words))
+        precondition(DHallStore.matchesKeyword(item("Steak Fajitas with Chimichurri Sauce"), words))
+        precondition(DHallStore.matchesKeyword(item("Philly Steak & Cheese"), words))
+        precondition(!DHallStore.matchesKeyword(item("A-1 Steak Sauce", "Condiments"), words))
+        precondition(!DHallStore.matchesKeyword(item("A-1 Steak Sauce"), words))
+        precondition(!DHallStore.matchesKeyword(item("Steak Strips", "Daily Dish Toppings"), words))
+        precondition(!DHallStore.matchesKeyword(item("Caribbean Rice"), ["rib"]))
+        // Real Oct 27-Nov 2 Marketplace names against the shipped defaults.
+        let defaults = DHallStore.defaultKeywords
+        for hit in ["Santa Maria Steak", "Philly Cheesesteak", "Carne Asada", "Roasted Beef", "Tuscan Beef Roast",
+                    "Beef Barbacoa", "Popcorn Shrimp", "Shrimp & Andouille Sausage Gravy", "Citrus Marinated Flank Steak"] {
+            precondition(DHallStore.matchesKeyword(item(hit), defaults), hit)
+        }
+        for miss in ["Burger & Steak Sandwich Topping Bar", "Beef Gravy", "Taco-Seasoned Ground Beef", "Grilled Chicken Breast"] {
+            precondition(!DHallStore.matchesKeyword(item(miss), defaults), miss)
+        }
+        precondition(!DHallStore.matchesKeyword(item("A-1 Steak Sauce", "Condiments"), defaults))
+        let chicken = item("Grilled Chicken Breast"), special = item("Santa Maria Steak")
+        let week = (0..<3).map { day in
+            DHallMenu(date: DHallMenu.shifted("2026-10-27", by: day)!, checkedAt: midnight, meals: [
+                .init(id: 1, name: "Lunch", items: [chicken]), .init(id: 2, name: "Dinner", items: day == 2 ? [chicken, special] : [chicken])])
+        }
+        precondition(DHallStore.staples(in: week) == ["grilled chicken breast"])
+        precondition(DHallStore.staples(in: Array(week.prefix(2))).isEmpty)
+        precondition(DHallStore.isSelfServe("Salad Bar - Dressings") && !DHallStore.isSelfServe("Lex Grill") && !DHallStore.isSelfServe("Deli - Cheese & Proteins"))
+        precondition(DHallStore.emoji(special) == "🥩" && DHallStore.emoji(item("Popcorn Shrimp")) == "🦐")
+        let today = DHallMenu.day()
+        let old = DHallMenu(date: DHallMenu.shifted(today, by: -61)!, checkedAt: midnight, meals: [])
+        let kept = DHallMenu(date: DHallMenu.shifted(today, by: -3)!, checkedAt: midnight, meals: [])
+        let fresh = DHallMenu(date: kept.date, checkedAt: midnight.addingTimeInterval(1), meals: [])
+        let merged = DHallStore.merged([old, kept], with: [fresh])
+        precondition(merged.count == 1 && merged[0].checkedAt == fresh.checkedAt)
+        print("D-hall parser, missing-date, entity, Eastern midnight, cache roundtrip, keyword and history merge checks passed")
         if CommandLine.arguments.contains("--live") {
             let store = DHallStore()
             await store.refresh()
             precondition(store.notice == nil, store.notice ?? "")
-            guard let menu = store.menu else { fatalError("No menu fetched") }
+            guard let menu = store.menu(for: DHallMenu.day()) else { fatalError("No menu fetched") }
             precondition(menu.date == DHallMenu.day() && !menu.meals.isEmpty)
             print("Live menu fetch: \(menu.date), \(menu.meals.count) meals, \(menu.meals.reduce(0) { $0 + $1.items.count }) items")
         }

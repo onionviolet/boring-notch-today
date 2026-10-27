@@ -213,7 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if ProcessInfo.processInfo.arguments.contains("--today-preview-window") {
+        let dhallPreview = ProcessInfo.processInfo.arguments.contains("--dhall-preview-window")
+        if dhallPreview || ProcessInfo.processInfo.arguments.contains("--today-preview-window") {
             let preview = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
                 styleMask: [.titled, .closable],
@@ -221,9 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 defer: false
             )
             preview.isReleasedWhenClosed = false
-            preview.title = "Boring Notch Today Preview"
+            preview.title = dhallPreview ? "Boring Notch D-hall Preview" : "Boring Notch Today Preview"
             preview.delegate = self
-            preview.contentView = NSHostingView(rootView: TodayView())
+            preview.contentView = dhallPreview
+                ? NSHostingView(rootView: AnyView(DHallView().background(Color.black).environment(\.colorScheme, .dark)))
+                : NSHostingView(rootView: AnyView(TodayView()))
             preview.center()
             preview.makeKeyAndOrderFront(nil)
             todayPreviewWindow = preview

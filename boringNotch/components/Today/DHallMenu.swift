@@ -16,6 +16,27 @@ struct DHallMenu: Codable {
     var checkedAt: Date
     var meals: [Meal]
 
+    static func upcomingDays(from day: String, count: Int) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let start = formatter.date(from: day) else { return [day] }
+        return (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }.map(formatter.string(from:))
+    }
+
+    static func shifted(_ day: String, by days: Int) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: day).flatMap { calendar.date(byAdding: .day, value: days, to: $0) }.map(formatter.string(from:))
+    }
+
     static func day(_ date: Date = Date()) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
