@@ -20,7 +20,9 @@ struct TodayView: View {
             .union(store.reminders.map { $0.row.id }).union(store.selectedRowID.map { [$0] } ?? [])
     }
     @State private var actionMessage: String?
+    // Expanded rows outlive the view: the notch tears TodayView down on close.
     @State private var expandedRows: Set<String> = []
+    private static let expandedKey = "today.expandedRows"
     @State private var showQuietSettings = false
 
     var body: some View {
@@ -42,7 +44,13 @@ struct TodayView: View {
         }
         // Fit the space below the notch header so the scroll viewport stays inside the panel.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { if startsStore { store.start() } }
+        .onAppear {
+            if startsStore { store.start() }
+            expandedRows = Set(scrollDefaults.stringArray(forKey: Self.expandedKey) ?? [])
+        }
+        .onChange(of: expandedRows) { _, rows in
+            scrollDefaults.set(Array(rows).sorted(), forKey: Self.expandedKey)
+        }
     }
 
     private var bridgeLabel: String {
