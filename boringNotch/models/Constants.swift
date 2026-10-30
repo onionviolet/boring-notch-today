@@ -498,6 +498,20 @@ extension Defaults.Keys {
     static let showPowerStatusIcons = Key<Bool>("showPowerStatusIcons", default: true)
     static let showChargingWattage = Key<Bool>("showChargingWattage", default: true)
 
+    // MARK: Keep Awake
+    static let showKeepAwakeButton = Key<Bool>("showKeepAwakeButton", default: true)
+    /// Minutes a tap on the notch button keeps the Mac awake; 0 = until stopped.
+    static let keepAwakeDefaultMinutes = Key<Int>("keepAwakeDefaultMinutes", default: 0)
+    static let keepAwakeAllowDisplaySleep = Key<Bool>("keepAwakeAllowDisplaySleep", default: true)
+    /// Battery percentage that ends keep-awake on battery; 0 turns it off.
+    static let keepAwakeBatteryThreshold = Key<Int>("keepAwakeBatteryThreshold", default: 20)
+    static let keepAwakeStopInLowPower = Key<Bool>("keepAwakeStopInLowPower", default: true)
+    static let keepAwakeLidClosed = Key<Bool>("keepAwakeLidClosed", default: false)
+    static let keepAwakeLidClosedWhileClaude = Key<Bool>("keepAwakeLidClosedWhileClaude", default: false)
+    /// Set while this app has system sleep turned off, so a relaunch after a
+    /// crash can turn it back on.
+    static let keepAwakeLidGuardOwned = Key<Bool>("keepAwakeLidGuardOwned", default: false)
+
     // MARK: Downloads
     static let enableDownloadListener = Key<Bool>("enableDownloadListener", default: true)
     static let enableSafariDownloads = Key<Bool>("enableSafariDownloads", default: true)

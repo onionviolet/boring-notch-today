@@ -8,6 +8,7 @@
 import AppKit
 import ApplicationServices
 import IOKit
+import IOKit.pwr_mgt
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
     private weak var connection: NSXPCConnection?
@@ -515,4 +516,102 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
 private struct LunarBrightnessEvent: Decodable, Sendable {
     let brightness: Double
     let display: Int
+}
+
+// MARK: - Keep Awake
+
+extension BoringNotchXPCHelper {
+    private static let claudeBundleID = "com.anthropic.claudefordesktop"
+
+    @objc func lidGuardSetupStatus(with reply: @escaping (Int) -> Void) {
+        let path = LidGuardSetup.scriptPath
+        let fm = FileManager.default
+        guard fm.isExecutableFile(atPath: path) else {
+            reply(LidGuardSetup.notInstalled.rawValue)
+            return
+        }
+        // Root must own the script and every folder above it, with no group
+        // or world write access; otherwise anyone who can rename a folder in
+        // the chain can swap the script, so refuse the sudoers rule.
+        var chain = [path]
+        var folder = (path as NSString).deletingLastPathComponent
+        while folder != "/" && !folder.isEmpty {
+            chain.append(folder)
+            folder = (folder as NSString).deletingLastPathComponent
+        }
+        for item in chain {
+            guard let attrs = try? fm.attributesOfItem(atPath: item),
+                  (attrs[.ownerAccountID] as? NSNumber)?.intValue == 0,
+                  let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue,
+                  perms & 0o022 == 0
+            else {
+                reply(LidGuardSetup.insecure.rawValue)
+                return
+            }
+        }
+        let allowed = Self.runSudo(["-n", "-l", path, "off"]) == 0
+        reply((allowed ? LidGuardSetup.ready : LidGuardSetup.noSudoRule).rawValue)
+    }
+
+    @objc func setLidGuard(_ enabled: Bool, with reply: @escaping (Bool) -> Void) {
+        let path = LidGuardSetup.scriptPath
+        guard enabled else {
+            reply(Self.runSudo(["-n", path, "off"]) == 0)
+            return
+        }
+        // The watchdog follows the app, not this helper: launchd can stop an
+        // idle XPC service while the app keeps running.
+        guard let pid = connection?.processIdentifier, pid > 0 else {
+            reply(false)
+            return
+        }
+        reply(Self.runSudo(["-n", path, "on", String(pid)]) == 0)
+    }
+
+    @objc func isClaudeWorking(with reply: @escaping (Bool) -> Void) {
+        let pids = Set(NSRunningApplication
+            .runningApplications(withBundleIdentifier: Self.claudeBundleID)
+            .map { Int($0.processIdentifier) })
+        guard !pids.isEmpty else {
+            reply(false)
+            return
+        }
+        var unmanaged: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsByProcess(&unmanaged) == kIOReturnSuccess,
+              let byPID = unmanaged?.takeRetainedValue() as? [NSNumber: [[String: Any]]]
+        else {
+            reply(false)
+            return
+        }
+        // Electron names every blocker "Electron", so match on the Claude
+        // app's own PID and the assertion type, never the name.
+        let sleepTypes: Set<String> = [
+            "NoIdleSleepAssertion",
+            kIOPMAssertionTypePreventUserIdleSystemSleep as String,
+        ]
+        let working = byPID.contains { pid, assertions in
+            pids.contains(pid.intValue) && assertions.contains {
+                sleepTypes.contains($0[kIOPMAssertionTypeKey as String] as? String ?? "")
+            }
+        }
+        reply(working)
+    }
+
+    /// Runs sudo with no prompt (`-n`), so a missing rule fails at once
+    /// instead of hanging on a password. Returns the exit status, or -1.
+    private static func runSudo(_ arguments: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return -1
+        }
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
 }

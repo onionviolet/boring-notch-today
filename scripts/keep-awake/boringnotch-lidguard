@@ -1,0 +1,67 @@
+#!/bin/sh
+# boringnotch-lidguard: the one root step behind Boring Notch's lid-closed
+# keep-awake. Boring Notch's XPC helper runs it through a sudoers rule that
+# names this exact path, so it must stay root-owned and unwritable by anyone
+# else (see docs/KeepAwake.md).
+#
+#   on <pid>  turn off system sleep; a watchdog turns it back on when <pid>
+#             exits or the battery falls to the floor
+#   off       turn system sleep back on and stop the watchdog
+set -eu
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+PIDFILE=/var/run/boringnotch-lidguard.pid
+# Last line of defence if the app hangs or crashes: the app's own cutoff is
+# configurable, this one is not.
+FLOOR=10
+
+stop_watchdog() {
+    if [ -f "$PIDFILE" ]; then
+        old=$(cat "$PIDFILE" 2>/dev/null || true)
+        case "$old" in
+            ''|*[!0-9]*) ;;
+            *)
+                # Only kill it if the PID still belongs to a watchdog.
+                if ps -p "$old" -o command= 2>/dev/null | grep -q 'boringnotch-lidguard-watchdog'; then
+                    kill "$old" 2>/dev/null || true
+                fi
+                ;;
+        esac
+        rm -f "$PIDFILE"
+    fi
+}
+
+case "${1:-}" in
+    on)
+        pid="${2:-}"
+        case "$pid" in
+            ''|*[!0-9]*) echo "usage: $0 on <pid>" >&2; exit 64 ;;
+        esac
+        kill -0 "$pid" 2>/dev/null || { echo "no such process: $pid" >&2; exit 65; }
+        stop_watchdog
+        pmset -a disablesleep 1
+        # Job control gives the watchdog its own process group, so it
+        # survives launchd killing the helper's group when the app dies.
+        set -m
+        nohup /bin/sh -c '
+            while kill -0 "$1" 2>/dev/null; do
+                pct=$(pmset -g batt | grep -Eo "[0-9]+%" | head -n 1 | tr -d %)
+                if pmset -g batt | grep -q "Battery Power" && [ -n "$pct" ] && [ "$pct" -le "$2" ]; then
+                    break
+                fi
+                sleep 5
+            done
+            pmset -a disablesleep 0
+            rm -f "$3"
+        ' boringnotch-lidguard-watchdog "$pid" "$FLOOR" "$PIDFILE" >/dev/null 2>&1 &
+        echo $! > "$PIDFILE"
+        ;;
+    off)
+        stop_watchdog
+        pmset -a disablesleep 0
+        ;;
+    *)
+        echo "usage: $0 on <pid> | off" >&2
+        exit 64
+        ;;
+esac

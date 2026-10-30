@@ -60,6 +60,26 @@ final class BNLunarBrightnessEvent: NSObject, NSSecureCoding {
     func startNotificationWatching(with reply: @escaping (Bool) -> Void)
     func stopNotificationWatching()
     func setNotificationFilter(_ bundleIDs: [String], allApps: Bool)
+    /// A `LidGuardSetup` raw value for the root lid-guard script.
+    func lidGuardSetupStatus(with reply: @escaping (Int) -> Void)
+    /// Turns system sleep off (`true`) or back on through the lid-guard script.
+    func setLidGuard(_ enabled: Bool, with reply: @escaping (Bool) -> Void)
+    /// Whether the Claude desktop app currently holds an idle-sleep assertion.
+    func isClaudeWorking(with reply: @escaping (Bool) -> Void)
+}
+
+/// What stands between the app and lid-closed keep-awake. Raw values cross
+/// the XPC boundary as plain integers.
+enum LidGuardSetup: Int {
+    case ready = 0
+    case notInstalled = 1
+    /// The script or its folder can be changed by someone other than root,
+    /// which would turn the sudoers rule into a privilege hole.
+    case insecure = 2
+    case noSudoRule = 3
+    case unknown = 4
+
+    static let scriptPath = "/usr/local/libexec/boringnotch-lidguard"
 }
 
 @objc protocol BoringNotchXPCHelperDelegate {

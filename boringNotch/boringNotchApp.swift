@@ -193,6 +193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         BetterDisplayManager.shared.stopObserving()
         LunarManager.shared.stopListening()
         LunarManager.shared.configureLunarOSD(hide: false)
+        MainActor.assumeIsolated { KeepAwakeManager.shared.shutdown() }
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
 
         observers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -236,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         SettingsWindowController.shared.setCamera(camera)
         migrateDisplayModeIfNeeded()
+        MainActor.assumeIsolated { KeepAwakeManager.shared.start() }
 
         NotificationCenter.default.addObserver(
             self,

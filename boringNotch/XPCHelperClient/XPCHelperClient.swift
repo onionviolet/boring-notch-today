@@ -428,6 +428,51 @@ extension XPCHelperClient {
         }
     }
 
+    // MARK: - Keep Awake
+
+    func lidGuardSetupStatus() async -> LidGuardSetup {
+        do {
+            let service = ensureRemoteService()
+            let raw: Int = try await service.withContinuation { service, continuation in
+                service.lidGuardSetupStatus { status in
+                    continuation.resume(returning: status)
+                }
+            }
+            return LidGuardSetup(rawValue: raw) ?? .unknown
+        } catch {
+            lastError = .transport(underlying: error)
+            return .unknown
+        }
+    }
+
+    func setLidGuard(_ enabled: Bool) async -> Bool {
+        do {
+            let service = ensureRemoteService()
+            return try await service.withContinuation { service, continuation in
+                service.setLidGuard(enabled) { ok in
+                    continuation.resume(returning: ok)
+                }
+            }
+        } catch {
+            lastError = .transport(underlying: error)
+            return false
+        }
+    }
+
+    func isClaudeWorking() async -> Bool {
+        do {
+            let service = ensureRemoteService()
+            return try await service.withContinuation { service, continuation in
+                service.isClaudeWorking { working in
+                    continuation.resume(returning: working)
+                }
+            }
+        } catch {
+            lastError = .transport(underlying: error)
+            return false
+        }
+    }
+
     nonisolated func setNotificationFilter(bundleIDs: Set<String>, allApps: Bool) {
         Task {
             let service = await MainActor.run { ensureRemoteService() }

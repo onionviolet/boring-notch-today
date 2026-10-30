@@ -46,11 +46,13 @@ xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Rel
 
 - `boringNotch/components/Today/`: `TodayPayload.swift` (strict decode), `TodayBridgeStatus.swift`, `TodayStore.swift` (directory watcher plus 15 s fallback poll), `TodayView.swift` (UI, scroll keeper).
 - Today wiring points inside upstream files: `NotchViews`, `TabSelectionView`, `ContentView`, `enums/generic.swift`. These are where upstream merges conflict.
+- `boringNotch/components/KeepAwake/`: keep-awake cup in the header, cutoff policy, manager; root script in `scripts/keep-awake/`, XPC methods in the helper. Contract and setup: `docs/KeepAwake.md`. Test: `swiftc boringNotch/components/KeepAwake/KeepAwakePolicy.swift tests/KeepAwakePolicyTests.swift -o work/keepawake-tests && work/keepawake-tests`.
 - `scripts/`, `tests/` (Python tests, `mcp_smoke.py`, standalone Swift tests), `docs/Today.md`, `docs/Atoll-review.md`, `HANDOFF.md`.
 - Bridge state files sit beside the payload: `refresh-request.json`, `bridge-status.json`, all owner-only (0600; dir 0700).
 
 ## Gotchas learned
 
+- `boringNotch/components/` is mostly classic groups: a new folder's files are not in the target until it gets a `PBXFileSystemSynchronizedRootGroup` entry (see `KeepAwake`) or pbxproj file references. `components/Settings` and `LiveActivities` are already synced.
 - Exact scroll restore needs the `NSScrollView`/`NSClipView` offset keeper. SwiftUI anchor-based `.scrollPosition(id:)` restored the wrong spot on tall rows.
 - MCP heartbeat: many Codex tasks spawn many `uv run ... boring-notch-today-mcp.py` processes; they elect one writer by file lock. Status goes stale about 15 s after the last transport exits (no shutdown write). Stale pre-fix processes can leave the UI showing offline.
 - Refresh button writes a bounded UUID request only; repeated clicks keep the pending ID.
