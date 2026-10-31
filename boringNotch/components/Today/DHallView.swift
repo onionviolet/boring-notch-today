@@ -4,6 +4,7 @@ import AppKit
 struct DHallView: View {
     @StateObject private var store = DHallStore.shared
     @AppStorage("dhall.day") private var selectedDay = ""
+    @AppStorage("dhall.dayStamp") private var dayStamp = ""
     @AppStorage("dhall.meal") private var selectedMeal = ""
     @AppStorage("dhall.station") private var selectedStation = "All"
     @State private var searching = false
@@ -334,6 +335,8 @@ struct DHallView: View {
     }
 
     private func normalizeDay() {
+        // A day picked on an earlier date must not stick: each new day opens on today.
+        if dayStamp != today { dayStamp = today; selectedDay = today }
         if store.menu(for: selectedDay) == nil { selectedDay = store.menu(for: today) != nil ? today : (store.menus.last?.date ?? today) }
     }
 
