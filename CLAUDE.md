@@ -46,7 +46,7 @@ xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Rel
 
 - `boringNotch/components/Today/`: `TodayPayload.swift` (strict decode), `TodayBridgeStatus.swift`, `TodayStore.swift` (directory watcher plus 15 s fallback poll), `TodayView.swift` (UI, scroll keeper).
 - Today wiring points inside upstream files: `NotchViews`, `TabSelectionView`, `ContentView`, `enums/generic.swift`. These are where upstream merges conflict.
-- `boringNotch/components/KeepAwake/`: keep-awake cup in the header, cutoff policy, manager; root script in `scripts/keep-awake/`, XPC methods in the helper. Contract and setup: `docs/KeepAwake.md`. Test: `swiftc boringNotch/components/KeepAwake/KeepAwakePolicy.swift tests/KeepAwakePolicyTests.swift -o work/keepawake-tests && work/keepawake-tests`.
+- `boringNotch/components/KeepAwake/`: keep-awake cup in the header, cutoff policy and lid-fade curve, manager, `LidFadeController`, and the root script `boringnotch-lidguard` (bundled into Resources by the synced group, installed by the one-click setup); XPC methods in the helper. Contract and setup: `docs/KeepAwake.md`. Test: `swiftc boringNotch/components/KeepAwake/KeepAwakePolicy.swift tests/KeepAwakePolicyTests.swift -o work/keepawake-tests && work/keepawake-tests`.
 - `scripts/`, `tests/` (Python tests, `mcp_smoke.py`, standalone Swift tests), `docs/Today.md`, `docs/Atoll-review.md`, `HANDOFF.md`.
 - Bridge state files sit beside the payload: `refresh-request.json`, `bridge-status.json`, all owner-only (0600; dir 0700).
 
