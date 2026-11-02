@@ -27,9 +27,9 @@ struct KeepAwakeInputs: Equatable {
     var sessionActive: Bool
     /// Keep the Mac awake with the lid closed while a session runs.
     var lidClosedWithSession: Bool
-    /// Keep the Mac awake with the lid closed while Claude is working.
-    var lidClosedWhileClaude: Bool
-    var claudeWorking: Bool
+    /// Keep the Mac awake with the lid closed while an AI agent is mid-turn.
+    var lidClosedWhileAgent: Bool
+    var agentWorking: Bool
     var onBattery: Bool
     /// 0...100.
     var batteryLevel: Int
@@ -71,7 +71,7 @@ enum KeepAwakePolicy {
         let sessionContinues = input.sessionActive && endSession == nil
 
         let lidWanted = (sessionContinues && input.lidClosedWithSession)
-            || (input.lidClosedWhileClaude && input.claudeWorking)
+            || (input.lidClosedWhileAgent && input.agentWorking)
 
         // Lid-closed is the risky mode (no airflow, possibly in a bag), so
         // its cutoffs have no start-below-threshold override.
@@ -89,5 +89,29 @@ enum KeepAwakePolicy {
             lidGuard: lidWanted && blocker == nil,
             lidBlockedBy: lidWanted ? blocker : nil
         )
+    }
+}
+
+/// How dark the built-in screen gets as the lid closes, from the hinge angle
+/// in degrees. Pure for the same reason as KeepAwakePolicy.
+enum LidFadeCurve {
+    /// Fully visible at or above this angle.
+    static let fadeStart = 50.0
+    /// Fully black at or below this angle.
+    static let fadeEnd = 12.0
+
+    /// 0 visible ... 1 black, eased so the last stretch darkens fastest.
+    static func opacity(angle: Double) -> Double {
+        let t = min(max((fadeStart - angle) / (fadeStart - fadeEnd), 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Below this the lid is shut (or all but), as in clamshell use.
+    static let closedAngle = 3.0
+
+    /// Poll fast only while the lid is moving through or near the fade
+    /// range, so a lid left wide open or shut costs four cheap reads a second.
+    static func pollInterval(angle: Double) -> TimeInterval {
+        angle > fadeStart + 30 || angle < closedAngle ? 0.25 : 1.0 / 30
     }
 }

@@ -64,8 +64,14 @@ final class BNLunarBrightnessEvent: NSObject, NSSecureCoding {
     func lidGuardSetupStatus(with reply: @escaping (Int) -> Void)
     /// Turns system sleep off (`true`) or back on through the lid-guard script.
     func setLidGuard(_ enabled: Bool, with reply: @escaping (Bool) -> Void)
-    /// Whether the Claude desktop app currently holds an idle-sleep assertion.
-    func isClaudeWorking(with reply: @escaping (Bool) -> Void)
+    /// Installs (`true`) or removes the lid-guard script and its sudoers rule
+    /// behind one macOS administrator prompt; replies with a `LidGuardSetup`
+    /// raw value, or -1 if the user cancelled the prompt.
+    func configureLidGuard(_ install: Bool, with reply: @escaping (Int) -> Void)
+    /// Whether an AI agent is mid-turn: the Claude or Codex desktop app, a
+    /// Claude Code CLI's `caffeinate` child, or a Codex CLI, each holding an
+    /// idle-sleep assertion.
+    func isAgentWorking(with reply: @escaping (Bool) -> Void)
 }
 
 /// What stands between the app and lid-closed keep-awake. Raw values cross
@@ -80,6 +86,10 @@ enum LidGuardSetup: Int {
     case unknown = 4
 
     static let scriptPath = "/usr/local/libexec/boringnotch-lidguard"
+    static let sudoersPath = "/etc/sudoers.d/boringnotch-lidguard"
+    /// The copy the one-click setup installs, inside the app bundle.
+    static let bundledScriptName = "boringnotch-lidguard"
+    static let cancelled = -1
 }
 
 @objc protocol BoringNotchXPCHelperDelegate {

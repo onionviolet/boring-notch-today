@@ -507,7 +507,10 @@ extension Defaults.Keys {
     static let keepAwakeBatteryThreshold = Key<Int>("keepAwakeBatteryThreshold", default: 20)
     static let keepAwakeStopInLowPower = Key<Bool>("keepAwakeStopInLowPower", default: true)
     static let keepAwakeLidClosed = Key<Bool>("keepAwakeLidClosed", default: false)
+    /// Covers Claude and Codex, desktop or CLI; the key keeps its first name.
     static let keepAwakeLidClosedWhileClaude = Key<Bool>("keepAwakeLidClosedWhileClaude", default: false)
+    /// Fade the built-in screen to black as the lid closes (lid-angle sensor).
+    static let lidFadeEnabled = Key<Bool>("lidFadeEnabled", default: false)
     /// Set while this app has system sleep turned off, so a relaunch after a
     /// crash can turn it back on.
     static let keepAwakeLidGuardOwned = Key<Bool>("keepAwakeLidGuardOwned", default: false)

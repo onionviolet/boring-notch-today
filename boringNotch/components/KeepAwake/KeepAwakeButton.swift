@@ -3,7 +3,8 @@
 //  boringNotch
 //
 //  The cup in the open notch's header. Click toggles keep-awake for the
-//  default duration; right-click picks a duration and the lid-closed modes.
+//  default duration; right-click picks a duration, the lid-closed modes and
+//  the lid fade.
 //
 
 import Defaults
@@ -12,7 +13,8 @@ import SwiftUI
 struct KeepAwakeButton: View {
     @ObservedObject private var manager = KeepAwakeManager.shared
     @Default(.keepAwakeLidClosed) private var lidClosed
-    @Default(.keepAwakeLidClosedWhileClaude) private var lidClosedWhileClaude
+    @Default(.keepAwakeLidClosedWhileClaude) private var lidClosedWhileAgent
+    @Default(.lidFadeEnabled) private var lidFade
 
     var body: some View {
         Button {
@@ -56,10 +58,10 @@ struct KeepAwakeButton: View {
             parts.append("Keep awake off")
         }
         if manager.lidGuardEngaged {
-            parts.append(manager.claudeWorking && !manager.isActive ? "lid closed OK while Claude works" : "lid closed OK")
+            parts.append(manager.agentWorking && !manager.isActive ? "lid closed OK while an agent works" : "lid closed OK")
         } else if let blocked = manager.lidBlockedBy {
             parts.append("lid-closed paused: \(blocked.label)")
-        } else if (lidClosed || lidClosedWhileClaude) && manager.lidGuardSetup != .ready {
+        } else if (lidClosed || lidClosedWhileAgent) && manager.lidGuardSetup != .ready {
             parts.append("lid-closed needs setup")
         }
         return parts.joined(separator: " · ")
@@ -79,7 +81,8 @@ struct KeepAwakeButton: View {
         }
         Divider()
         Toggle("Also with lid closed", isOn: $lidClosed)
-        Toggle("Lid closed while Claude works", isOn: $lidClosedWhileClaude)
+        Toggle("Lid closed while Claude or Codex works", isOn: $lidClosedWhileAgent)
+        Toggle("Fade screen as lid closes", isOn: $lidFade)
         Divider()
         Button("Keep Awake Settings…") {
             SettingsWindowController.shared.showWindow()

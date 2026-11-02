@@ -30,8 +30,10 @@ final class KeepAwakeManager: ObservableObject {
     @Published private(set) var endsAt: Date?
     /// System sleep is currently off because of this app.
     @Published private(set) var lidGuardEngaged = false
-    @Published private(set) var claudeWorking = false
+    @Published private(set) var agentWorking = false
     @Published private(set) var lidGuardSetup: LidGuardSetup = .unknown
+    /// An administrator prompt for setup or removal is open.
+    @Published private(set) var setupBusy = false
     /// Lid-closed keep-awake is wanted right now but a cutoff blocks it.
     @Published private(set) var lidBlockedBy: KeepAwakeStopReason?
     /// Why the last session ended on its own, shown until the next start.
@@ -41,14 +43,14 @@ final class KeepAwakeManager: ObservableObject {
     private var startedBelowThreshold = false
     private var expiryTimer: Timer?
     private var pollTimer: Timer?
-    private var claudeLastSeen: Date?
+    private var agentLastSeen: Date?
     private var lidGuardBusy = false
     private var started = false
     private var cancellables: Set<AnyCancellable> = []
 
-    /// Claude lets go of its own assertion shortly after a turn ends; this
+    /// Agents let go of their assertion shortly after a turn ends; this
     /// grace keeps a short pause between turns from cycling system sleep.
-    private let claudeGrace: TimeInterval = 90
+    private let agentGrace: TimeInterval = 90
     private let pollInterval: TimeInterval = 15
 
     private init() {}
@@ -146,6 +148,22 @@ final class KeepAwakeManager: ObservableObject {
         evaluate()
     }
 
+    /// Installs or removes the root script and sudoers rule behind one
+    /// administrator prompt. A cancelled prompt changes nothing.
+    func configureSetup(install: Bool) async {
+        guard !setupBusy else { return }
+        setupBusy = true
+        defer { setupBusy = false }
+        guard let status = await XPCHelperClient.shared.configureLidGuard(install: install) else { return }
+        if !install && status != .ready {
+            // Removal ran the script's `off` first, so sleep is already back on.
+            lidGuardEngaged = false
+            Defaults[.keepAwakeLidGuardOwned] = false
+        }
+        lidGuardSetup = status
+        evaluate()
+    }
+
     // MARK: - Assertions
 
     private func refreshAssertions() {
@@ -180,11 +198,11 @@ final class KeepAwakeManager: ObservableObject {
 
     private func poll() async {
         if Defaults[.keepAwakeLidClosedWhileClaude] {
-            if await XPCHelperClient.shared.isClaudeWorking() {
-                claudeLastSeen = Date()
+            if await XPCHelperClient.shared.isAgentWorking() {
+                agentLastSeen = Date()
             }
         } else {
-            claudeLastSeen = nil
+            agentLastSeen = nil
         }
         evaluate()
     }
@@ -195,15 +213,15 @@ final class KeepAwakeManager: ObservableObject {
     }
 
     private func evaluate() {
-        claudeWorking = claudeLastSeen.map { Date().timeIntervalSince($0) < claudeGrace } ?? false
+        agentWorking = agentLastSeen.map { Date().timeIntervalSince($0) < agentGrace } ?? false
 
         let battery = BatteryStatusViewModel.shared
         let thermal = ProcessInfo.processInfo.thermalState
         let decision = KeepAwakePolicy.decide(KeepAwakeInputs(
             sessionActive: isActive,
             lidClosedWithSession: Defaults[.keepAwakeLidClosed],
-            lidClosedWhileClaude: Defaults[.keepAwakeLidClosedWhileClaude],
-            claudeWorking: claudeWorking,
+            lidClosedWhileAgent: Defaults[.keepAwakeLidClosedWhileClaude],
+            agentWorking: agentWorking,
             onBattery: !battery.isPluggedIn,
             batteryLevel: Int(battery.levelBattery),
             batteryThreshold: Defaults[.keepAwakeBatteryThreshold],

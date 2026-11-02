@@ -459,11 +459,28 @@ extension XPCHelperClient {
         }
     }
 
-    func isClaudeWorking() async -> Bool {
+    /// Nil when the user cancelled the administrator prompt.
+    func configureLidGuard(install: Bool) async -> LidGuardSetup? {
+        do {
+            let service = ensureRemoteService()
+            let raw: Int = try await service.withContinuation { service, continuation in
+                service.configureLidGuard(install) { status in
+                    continuation.resume(returning: status)
+                }
+            }
+            if raw == LidGuardSetup.cancelled { return nil }
+            return LidGuardSetup(rawValue: raw) ?? .unknown
+        } catch {
+            lastError = .transport(underlying: error)
+            return .unknown
+        }
+    }
+
+    func isAgentWorking() async -> Bool {
         do {
             let service = ensureRemoteService()
             return try await service.withContinuation { service, continuation in
-                service.isClaudeWorking { working in
+                service.isAgentWorking { working in
                     continuation.resume(returning: working)
                 }
             }

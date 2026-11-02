@@ -84,25 +84,44 @@ private struct KeepAwakeSettingsSection: View {
                 Text("Also keep awake with the lid closed")
             }
             Defaults.Toggle(key: .keepAwakeLidClosedWhileClaude) {
-                Text("Keep awake with the lid closed while Claude works")
+                Text("Keep awake with the lid closed while Claude or Codex works")
             }
             HStack {
                 Text("Setup")
                 Spacer()
                 Text(setupText)
                     .foregroundStyle(manager.lidGuardSetup == .ready ? Color.secondary : Color.orange)
-                Button("Recheck") {
-                    Task { await manager.refreshSetup() }
-                }
+                setupButton
             }
         } header: {
             Text("Lid Closed")
         } footer: {
-            Text("Turns system sleep off, which needs a one-time root setup (docs/KeepAwake.md in the fork). Pauses when the Mac runs hot, in Low Power Mode or at the battery cutoff, and turns back on by itself if Boring Notch quits. Don't pack a closed, awake Mac in a bag.")
+            Text("Turns system sleep off, which needs a one-time root setup: Set Up asks for your administrator password once. \"While Claude or Codex works\" follows the desktop apps and the claude and codex CLIs while a turn runs. Pauses when the Mac runs hot, in Low Power Mode or at the battery cutoff, and turns back on by itself if Boring Notch quits. Don't pack a closed, awake Mac in a bag.")
                 .foregroundStyle(.secondary)
         }
         .onAppear {
             Task { await manager.refreshSetup() }
+        }
+        LidFadeSettingsSection()
+    }
+
+    @ViewBuilder
+    private var setupButton: some View {
+        switch manager.lidGuardSetup {
+        case .ready:
+            Button("Remove") {
+                Task { await manager.configureSetup(install: false) }
+            }
+            .disabled(manager.setupBusy)
+        case .unknown:
+            Button("Recheck") {
+                Task { await manager.refreshSetup() }
+            }
+        case .notInstalled, .insecure, .noSudoRule:
+            Button(manager.lidGuardSetup == .notInstalled ? "Set Up…" : "Repair…") {
+                Task { await manager.configureSetup(install: true) }
+            }
+            .disabled(manager.setupBusy)
         }
     }
 
@@ -113,6 +132,28 @@ private struct KeepAwakeSettingsSection: View {
         case .insecure: "Script not root-owned, refused"
         case .noSudoRule: "Sudoers rule missing"
         case .unknown: "Checking…"
+        }
+    }
+}
+
+private struct LidFadeSettingsSection: View {
+    @ObservedObject private var fade = LidFadeController.shared
+    @Default(.lidFadeEnabled) private var enabled
+
+    var body: some View {
+        Section {
+            Defaults.Toggle(key: .lidFadeEnabled) {
+                Text("Fade the screen as the lid closes")
+            }
+            if enabled && fade.sensorAvailable == false {
+                Text("This Mac's lid-angle sensor can't be read, so the fade stays off.")
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text("Lid Fade")
+        } footer: {
+            Text("Dims the built-in screen to black between about 50° and 12° and brightens it again as you open the lid. Reads the hinge sensor four times a second while the lid is open or shut, faster only while it moves through the fade.")
+                .foregroundStyle(.secondary)
         }
     }
 }

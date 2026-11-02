@@ -521,14 +521,22 @@ private struct LunarBrightnessEvent: Decodable, Sendable {
 // MARK: - Keep Awake
 
 extension BoringNotchXPCHelper {
-    private static let claudeBundleID = "com.anthropic.claudefordesktop"
+    /// Desktop apps whose own idle-sleep assertion means an agent is mid-turn.
+    /// Electron names every blocker "Electron", so these match by PID.
+    private static let agentAppBundleIDs = ["com.anthropic.claudefordesktop", "com.openai.codex"]
+    /// CLI executables matched by name: Codex holds its own assertion for an
+    /// active turn, and Claude Code spawns `caffeinate -i` as its child.
+    private static let agentExecutables: Set<String> = ["claude", "codex"]
 
     @objc func lidGuardSetupStatus(with reply: @escaping (Int) -> Void) {
+        reply(Self.lidGuardSetup().rawValue)
+    }
+
+    private static func lidGuardSetup() -> LidGuardSetup {
         let path = LidGuardSetup.scriptPath
         let fm = FileManager.default
         guard fm.isExecutableFile(atPath: path) else {
-            reply(LidGuardSetup.notInstalled.rawValue)
-            return
+            return .notInstalled
         }
         // Root must own the script and every folder above it, with no group
         // or world write access; otherwise anyone who can rename a folder in
@@ -545,12 +553,11 @@ extension BoringNotchXPCHelper {
                   let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue,
                   perms & 0o022 == 0
             else {
-                reply(LidGuardSetup.insecure.rawValue)
-                return
+                return .insecure
             }
         }
-        let allowed = Self.runSudo(["-n", "-l", path, "off"]) == 0
-        reply((allowed ? LidGuardSetup.ready : LidGuardSetup.noSudoRule).rawValue)
+        let allowed = runSudo(["-n", "-l", path, "off"]) == 0
+        return allowed ? .ready : .noSudoRule
     }
 
     @objc func setLidGuard(_ enabled: Bool, with reply: @escaping (Bool) -> Void) {
@@ -568,14 +575,49 @@ extension BoringNotchXPCHelper {
         reply(Self.runSudo(["-n", path, "on", String(pid)]) == 0)
     }
 
-    @objc func isClaudeWorking(with reply: @escaping (Bool) -> Void) {
-        let pids = Set(NSRunningApplication
-            .runningApplications(withBundleIdentifier: Self.claudeBundleID)
-            .map { Int($0.processIdentifier) })
-        guard !pids.isEmpty else {
-            reply(false)
-            return
+    @objc func configureLidGuard(_ install: Bool, with reply: @escaping (Int) -> Void) {
+        let script = LidGuardSetup.scriptPath
+        let sudoers = LidGuardSetup.sudoersPath
+        let command: String
+        if install {
+            // The user name goes into a sudoers line, so only plain account
+            // names pass; the script is copied from this app's own bundle,
+            // never from a path the app hands over.
+            let user = NSUserName()
+            guard user.range(of: "^[A-Za-z0-9_][A-Za-z0-9_.-]*$", options: .regularExpression) != nil,
+                  let source = Self.bundledLidGuardURL()
+            else {
+                reply(Self.lidGuardSetup().rawValue)
+                return
+            }
+            let rule = "\(user) ALL=(root) NOPASSWD: \(script)"
+            // visudo checks the rule before it lands: a malformed file in
+            // sudoers.d breaks sudo for the whole Mac.
+            command = """
+            set -e
+            tmp=$(/usr/bin/mktemp /private/tmp/boringnotch-lidguard.XXXXXX)
+            trap '/bin/rm -f "$tmp"' EXIT
+            printf '%s\\n' \(Self.shellQuote(rule)) > "$tmp"
+            /usr/sbin/visudo -cf "$tmp" >/dev/null
+            /usr/bin/install -d -o root -g wheel -m 755 /usr/local/libexec
+            /usr/bin/install -o root -g wheel -m 755 \(Self.shellQuote(source.path)) \(Self.shellQuote(script))
+            /usr/bin/install -o root -g wheel -m 440 "$tmp" \(Self.shellQuote(sudoers))
+            """
+        } else {
+            // Turn sleep back on before the rule that allows it disappears.
+            command = """
+            \(Self.shellQuote(script)) off >/dev/null 2>&1 || true
+            /bin/rm -f \(Self.shellQuote(sudoers)) \(Self.shellQuote(script))
+            """
         }
+        let status = Self.runAsAdministrator(command)
+        reply(status == .cancelled ? LidGuardSetup.cancelled : Self.lidGuardSetup().rawValue)
+    }
+
+    @objc func isAgentWorking(with reply: @escaping (Bool) -> Void) {
+        let appPIDs = Set(Self.agentAppBundleIDs
+            .flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0) }
+            .map(\.processIdentifier))
         var unmanaged: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsByProcess(&unmanaged) == kIOReturnSuccess,
               let byPID = unmanaged?.takeRetainedValue() as? [NSNumber: [[String: Any]]]
@@ -583,18 +625,80 @@ extension BoringNotchXPCHelper {
             reply(false)
             return
         }
-        // Electron names every blocker "Electron", so match on the Claude
-        // app's own PID and the assertion type, never the name.
         let sleepTypes: Set<String> = [
             "NoIdleSleepAssertion",
             kIOPMAssertionTypePreventUserIdleSystemSleep as String,
         ]
         let working = byPID.contains { pid, assertions in
-            pids.contains(pid.intValue) && assertions.contains {
+            guard assertions.contains(where: {
                 sleepTypes.contains($0[kIOPMAssertionTypeKey as String] as? String ?? "")
+            }) else { return false }
+            let pid = pid.int32Value
+            if appPIDs.contains(pid) { return true }
+            guard let name = Self.executableName(pid) else { return false }
+            if Self.agentExecutables.contains(name) { return true }
+            // Only a caffeinate an agent started counts, not one from a shell.
+            if name == "caffeinate", let parent = Self.parentPID(pid),
+               let parentName = Self.executableName(parent) {
+                return Self.agentExecutables.contains(parentName)
             }
+            return false
         }
         reply(working)
+    }
+
+    /// The helper sits at Boring Notch.app/Contents/XPCServices/*.xpc.
+    private static func bundledLidGuardURL() -> URL? {
+        let contents = Bundle.main.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = contents
+            .appendingPathComponent("Resources")
+            .appendingPathComponent(LidGuardSetup.bundledScriptName)
+        return FileManager.default.isReadableFile(atPath: url.path) ? url : nil
+    }
+
+    private static func executableName(_ pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return (String(cString: buffer) as NSString).lastPathComponent
+    }
+
+    private static func parentPID(_ pid: pid_t) -> pid_t? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return pid_t(info.pbi_ppid)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private enum AdminStatus { case ok, failed, cancelled }
+
+    /// One macOS administrator prompt for the whole command.
+    private static func runAsAdministrator(_ command: String) -> AdminStatus {
+        let literal = command
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "do shell script \"\(literal)\" with administrator privileges"]
+        let errors = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errors
+        do {
+            try process.run()
+        } catch {
+            return .failed
+        }
+        let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        if process.terminationStatus == 0 { return .ok }
+        // AppleScript error -128 is "User canceled."
+        return message.contains("-128") ? .cancelled : .failed
     }
 
     /// Runs sudo with no prompt (`-n`), so a missing rule fails at once

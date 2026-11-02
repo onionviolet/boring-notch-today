@@ -2,8 +2,8 @@ import Foundation
 
 @main struct KeepAwakePolicyTests {
     static let base = KeepAwakeInputs(
-        sessionActive: true, lidClosedWithSession: false, lidClosedWhileClaude: false,
-        claudeWorking: false, onBattery: true, batteryLevel: 80, batteryThreshold: 20,
+        sessionActive: true, lidClosedWithSession: false, lidClosedWhileAgent: false,
+        agentWorking: false, onBattery: true, batteryLevel: 80, batteryThreshold: 20,
         startedBelowThreshold: false, lowPowerMode: false, stopInLowPowerMode: true,
         runningHot: false)
 
@@ -38,10 +38,10 @@ import Foundation
         let ended = decide { $0.lidClosedWithSession = true; $0.batteryLevel = 10 }
         precondition(ended.endSession == .battery && !ended.lidGuard)
 
-        // The Claude trigger works with no session, only while Claude works.
-        precondition(decide { $0.sessionActive = false; $0.lidClosedWhileClaude = true; $0.claudeWorking = true }.lidGuard)
-        precondition(!decide { $0.sessionActive = false; $0.lidClosedWhileClaude = true }.lidGuard)
-        precondition(!decide { $0.sessionActive = false; $0.claudeWorking = true }.lidGuard)
+        // The agent trigger works with no session, only while an agent works.
+        precondition(decide { $0.sessionActive = false; $0.lidClosedWhileAgent = true; $0.agentWorking = true }.lidGuard)
+        precondition(!decide { $0.sessionActive = false; $0.lidClosedWhileAgent = true }.lidGuard)
+        precondition(!decide { $0.sessionActive = false; $0.agentWorking = true }.lidGuard)
 
         // Heat blocks lid-closed but leaves the session alone.
         let hot = decide { $0.lidClosedWithSession = true; $0.runningHot = true }
@@ -49,6 +49,21 @@ import Foundation
 
         // No blocker is reported when lid-closed was never wanted.
         precondition(decide { $0.runningHot = true }.lidBlockedBy == nil)
+
+        // Lid fade: clear when open, black when nearly shut, monotonic between.
+        precondition(LidFadeCurve.opacity(angle: 131) == 0)
+        precondition(LidFadeCurve.opacity(angle: LidFadeCurve.fadeStart) == 0)
+        precondition(LidFadeCurve.opacity(angle: LidFadeCurve.fadeEnd) == 1)
+        precondition(LidFadeCurve.opacity(angle: 0) == 1)
+        var last = 0.0
+        for angle in stride(from: 60.0, through: 0, by: -1) {
+            let value = LidFadeCurve.opacity(angle: angle)
+            precondition(value >= last && value <= 1)
+            last = value
+        }
+        // Fast polling only in the band where the lid is moving.
+        precondition(LidFadeCurve.pollInterval(angle: 131) > LidFadeCurve.pollInterval(angle: 40))
+        precondition(LidFadeCurve.pollInterval(angle: 0) > LidFadeCurve.pollInterval(angle: 20))
 
         print("KeepAwakePolicyTests passed")
     }
