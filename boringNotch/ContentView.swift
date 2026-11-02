@@ -19,9 +19,9 @@ struct ContentView: View {
     @ObservedObject var todayStore = TodayStore.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
-    @ObservedObject var batteryModel = BatteryStatusViewModel.shared
-    @ObservedObject var brightnessManager = BrightnessManager.shared
-    @ObservedObject var volumeManager = VolumeManager.shared
+    private let batteryModel = BatteryStatusViewModel.shared
+    private let brightnessManager = BrightnessManager.shared
+    private let volumeManager = VolumeManager.shared
     @ObservedObject var notificationManager = SystemNotificationManager.shared
     /// Which entry of the closed-notch activity stack is on top.
     @State private var activityIndex: Int = 0
@@ -324,10 +324,16 @@ struct ContentView: View {
                             .frame(height: 1)
                             .padding(.horizontal, topCornerRadius)
                     }
-                    .shadow(
-                        color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
-                            ? .black.opacity(0.7) : .clear, radius: 6
-                    )
+                    // Shadow comes from a plain shape behind the content, so the
+                    // hover/open spring doesn't re-rasterize the whole notch tree.
+                    .background {
+                        currentNotchShape
+                            .fill(Color.black)
+                            .shadow(
+                                color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
+                                    ? .black.opacity(0.7) : .clear, radius: 6
+                            )
+                    }
                     // Removed conditional bottom padding when using custom 0 notch to keep layout stable
                     .opacity((isNotchHeightZero && vm.notchState == .closed) ? 0.01 : 1)
 

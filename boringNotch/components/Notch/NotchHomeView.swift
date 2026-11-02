@@ -598,7 +598,6 @@ struct NotchHomeView: View {
             }
         }
         .transition(.opacity)
-        .blur(radius: vm.notchState == .closed ? 30 : 0)
     }
 }
 
