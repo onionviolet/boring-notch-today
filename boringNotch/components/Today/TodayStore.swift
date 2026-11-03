@@ -261,6 +261,14 @@ final class TodayStore: ObservableObject {
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
+    private static func countdownChanged(_ deadlines: [TodayDeadline], from old: Date, to new: Date) -> Bool {
+        func bucket(_ due: Date, _ at: Date) -> Int {
+            let seconds = due.timeIntervalSince(at)
+            return seconds > 0 ? Int(ceil(seconds / 60)) : -1
+        }
+        return deadlines.contains { bucket($0.dueAt, old) != bucket($0.dueAt, new) }
+    }
+
     func tick() {
         let instant = clock()
         if let payload = lastGoodPayload, case .ready = state {
@@ -271,8 +279,11 @@ final class TodayStore: ObservableObject {
         let deadlineTime = latestPayloadAccepted && (lastGoodPayload.map {
             !$0.isStale(at: instant) && !($0.deadlines ?? []).isEmpty
         } ?? false)
-        let timeContent = focusTime || deadlineTime
-        if timeContent, now != instant { now = instant }
+        // Focus shows seconds; deadlines only change when a countdown minute turns over. Publishing
+        // `now` every second redraws everything observing the store (ContentView included).
+        if now != instant, focusTime || (deadlineTime && Self.countdownChanged(lastGoodPayload?.deadlines ?? [], from: now, to: instant)) {
+            now = instant
+        }
         let now = instant // semantic scheduling never relies on the publication gate
         let quiet = TodayQuietHours(enabled: defaults.bool(forKey: "today.quiet.enabled"),
             startMinute: defaults.object(forKey: "today.quiet.start") as? Int ?? 1320,
