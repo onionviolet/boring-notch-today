@@ -54,24 +54,24 @@ struct DHallView: View {
         }
     }
 
-    private func parse(_ day: String) -> Date? {
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.timeZone = TimeZone(identifier: "America/New_York")
-        parser.dateFormat = "yyyy-MM-dd"
-        return parser.date(from: day)
+    private static func formatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "America/New_York")
+        formatter.dateFormat = format
+        return formatter
     }
+    // The day picker labels every saved day on each redraw, so these are built once.
+    private static let parser = formatter("yyyy-MM-dd"), labeler = formatter("EEE MMM d")
+
+    private func parse(_ day: String) -> Date? { Self.parser.date(from: day) }
 
     private func dayLabel(_ day: String) -> String {
         if day == today { return "Today" }
         if day == DHallMenu.shifted(today, by: 1) { return "Tomorrow" }
         if day == DHallMenu.shifted(today, by: -1) { return "Yesterday" }
         guard let date = parse(day) else { return day }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "America/New_York")
-        formatter.dateFormat = "EEE MMM d"
-        return formatter.string(from: date)
+        return Self.labeler.string(from: date)
     }
 
     /// Steps to the previous or next saved day.

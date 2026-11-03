@@ -16,15 +16,17 @@ final class DHallStore: ObservableObject {
                                   "beef tips", "prime rib", "short rib", "brisket", "pork belly", "salmon", "shrimp", "crab", "lobster",
                                   "scallop", "lamb", "wings", "carving"]
     static let source = URL(string: "https://netnutrition.cbord.com/nn-prod/WLU")!
-    @Published private(set) var menus: [DHallMenu] = [] { didSet { staples = Self.staples(in: menus) } }
+    @Published private(set) var menus: [DHallMenu] = [] { didSet { staples = Self.staples(in: menus); scores = [:] } }
     /// Lowercased names that show up at most saved meals, e.g. Grilled Chicken Breast.
     private(set) var staples: Set<String> = []
     @Published private(set) var refreshing = false
     @Published private(set) var notice: String?
     /// Lowercased item names the user starred.
-    @Published private(set) var favorites: Set<String> = Set(UserDefaults.standard.stringArray(forKey: DHallStore.favoritesKey) ?? [])
+    @Published private(set) var favorites: Set<String> = Set(UserDefaults.standard.stringArray(forKey: DHallStore.favoritesKey) ?? []) { didSet { scores = [:] } }
     /// Lowercased words that mark an item as key wherever it appears, e.g. "steak" for "Grilled Flank Steak".
-    @Published private(set) var keywords: [String] = UserDefaults.standard.stringArray(forKey: DHallStore.keywordsKey) ?? DHallStore.defaultKeywords
+    @Published private(set) var keywords: [String] = UserDefaults.standard.stringArray(forKey: DHallStore.keywordsKey) ?? DHallStore.defaultKeywords { didSet { scores = [:] } }
+    /// Scores by station and name; the view asks for thousands per redraw, and each one was a regex pass.
+    private var scores: [String: Int] = [:]
     private var lastAttempt = Date.distantPast
     private var lastFutureFetch = Date.distantPast
     private let cache = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -62,9 +64,22 @@ final class DHallStore: ObservableObject {
         if name.contains("topping bar") { return false }
         let dish = name.contains(" with ") || name.contains("w/") || name.contains("&")
         if !dish, ["sauce", "seasoning", "dressing", "gravy", "marinade"].contains(where: name.hasSuffix) { return false }
-        return keywords.contains { word in
-            name.range(of: "\\b" + NSRegularExpression.escapedPattern(for: word), options: .regularExpression) != nil
+        return keywords.contains { containsWord(name, $0) }
+    }
+
+    /// Same as matching `\bword`, without compiling a regex per call.
+    private static func containsWord(_ name: String, _ word: String) -> Bool {
+        guard let first = word.first, first.isLetter || first.isNumber else {
+            return name.range(of: "\\b" + NSRegularExpression.escapedPattern(for: word), options: .regularExpression) != nil
         }
+        var from = name.startIndex
+        while let hit = name.range(of: word, range: from..<name.endIndex) {
+            if hit.lowerBound == name.startIndex { return true }
+            let before = name[name.index(before: hit.lowerBound)]
+            if !(before.isLetter || before.isNumber || before == "_") { return true }
+            from = name.index(after: hit.lowerBound)
+        }
+        return false
     }
     func isKey(_ item: DHallMenu.Item) -> Bool { score(item) >= 2 }
     func isStaple(_ item: DHallMenu.Item) -> Bool { staples.contains(Self.key(item.name)) }
@@ -72,9 +87,11 @@ final class DHallStore: ObservableObject {
     /// Greatness: starred 3, watched word 2, staple -1. Ties keep posted order.
     func score(_ item: DHallMenu.Item) -> Int {
         let name = Self.key(item.name)
-        if favorites.contains(name) { return 3 }
-        if Self.matchesKeyword(item, keywords) { return 2 }
-        return staples.contains(name) ? -1 : 0
+        let cacheKey = item.station + "\u{1}" + name
+        if let known = scores[cacheKey] { return known }
+        let result = favorites.contains(name) ? 3 : Self.matchesKeyword(item, keywords) ? 2 : staples.contains(name) ? -1 : 0
+        scores[cacheKey] = result
+        return result
     }
     func ranked(_ items: [DHallMenu.Item]) -> [DHallMenu.Item] {
         items.enumerated().sorted { a, b in

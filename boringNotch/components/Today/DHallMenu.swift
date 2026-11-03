@@ -27,23 +27,25 @@ struct DHallMenu: Codable {
         return (0..<count).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }.map(formatter.string(from:))
     }
 
-    static func shifted(_ day: String, by days: Int) -> String? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/New_York")!
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: day).flatMap { calendar.date(byAdding: .day, value: days, to: $0) }.map(formatter.string(from:))
-    }
-
-    static func day(_ date: Date = Date()) -> String {
+    // The view asks for today and shifted days many times per redraw, so build these once.
+    private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "America/New_York")
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        return formatter
+    }()
+    private static let easternCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar
+    }()
+
+    static func shifted(_ day: String, by days: Int) -> String? {
+        dayFormatter.date(from: day).flatMap { easternCalendar.date(byAdding: .day, value: days, to: $0) }.map(dayFormatter.string(from:))
     }
+
+    static func day(_ date: Date = Date()) -> String { dayFormatter.string(from: date) }
 }
 
 // NetNutrition returns JSON panels containing HTML, rather than a menu JSON API.
