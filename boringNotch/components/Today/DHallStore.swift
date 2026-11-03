@@ -150,8 +150,12 @@ final class DHallStore: ObservableObject {
         let day = DHallMenu.day()
         do {
             let days = DHallMenu.upcomingDays(from: day, count: includeFuture ? DHallStore.horizon : 1)
+            // Each day is shown as soon as it arrives, so today's menu doesn't wait on the coming week.
+            let store = self
             let fetched = try await Task.detached(priority: .utility) {
-                try DHallClient.fetch(days: days)
+                try DHallClient.fetch(days: days) { menu in
+                    Task { @MainActor in store.show(menu, requestedOn: day) }
+                }
             }.value
             // Don't publish a yesterday snapshot as today's menu across midnight.
             guard day == DHallMenu.day() else { throw MenuError.dayChanged }
@@ -166,6 +170,12 @@ final class DHallStore: ObservableObject {
         } catch {
             notice = (error as? MenuError)?.description ?? "Couldn't refresh: \(error.localizedDescription)"
         }
+    }
+
+    private func show(_ menu: DHallMenu, requestedOn day: String) {
+        guard day == DHallMenu.day() else { return }
+        menus = Self.merged(menus, with: [menu])
+        notice = nil
     }
 
     fileprivate enum MenuError: Error {
@@ -184,7 +194,7 @@ final class DHallStore: ObservableObject {
 // system curl route matches the working public collector. No shell is involved.
 private enum DHallClient {
     /// Today's menu is required; later days are best effort and skipped when unposted or unreadable.
-    static func fetch(days: [String]) throws -> [DHallMenu] {
+    static func fetch(days: [String], onDay: @escaping @Sendable (DHallMenu) -> Void = { _ in }) throws -> [DHallMenu] {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("boring-dhall-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
@@ -204,7 +214,9 @@ private enum DHallClient {
                     guard !items.isEmpty else { throw DHallStore.MenuError.changed }
                     return DHallMenu.Meal(id: reference.id, name: reference.name, items: items)
                 }
-                result.append(DHallMenu(date: day, checkedAt: Date(), meals: meals))
+                let menu = DHallMenu(date: day, checkedAt: Date(), meals: meals)
+                result.append(menu)
+                onDay(menu)
             } catch where index > 0 {
                 continue
             }
