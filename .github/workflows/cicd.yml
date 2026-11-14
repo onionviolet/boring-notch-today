@@ -46,9 +46,6 @@ jobs:
           upload-logs: always
           configuration: release
 
-      - name: Create Today render output directory
-        run: mkdir -p work
-
       # Unit tests run hosted by the app (TEST_HOST), so they spawn a real
       # menubar-app instance on the runner — acceptable on CI where nothing
       # else reacts to it; they are skipped on matrix legs without hosted-test

@@ -249,8 +249,10 @@ final class TodayPresetTests: XCTestCase {
                 let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: bitmap)
                 let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-                let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                try data.write(to: root.appendingPathComponent("work/o8-\(suffix).png"))
+                let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.png")
+                attachment.name = "o8-\(suffix)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
                 XCTAssertEqual(raw(store), before)
             }
             for name in [TodayPresetName.study, .quiet, .media, .custom] { try render(name, name.rawValue.lowercased()) }

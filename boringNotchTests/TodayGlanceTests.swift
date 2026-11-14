@@ -140,8 +140,10 @@ final class TodayGlanceTests: XCTestCase {
         let image = try XCTUnwrap(renderer.cgImage)
         let bitmap = NSBitmapImageRep(cgImage: image)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        try png.write(to: root.appendingPathComponent("work/o6-glance-render.png"))
+        let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        attachment.name = "o6-glance-render"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
 }
