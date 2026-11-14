@@ -463,12 +463,15 @@ struct TodayNotchGlance: View {
     }
 
     var body: some View {
-        Button { openToday(presentation.rowID) } label: {
+        let help = Text(verbatim: "\(presentation.title) · \(presentation.detail). Open Today for details.")
+        let accessibilityLabel = Text(verbatim: "\(presentation.title), \(presentation.detail), open Today")
+        let button = Button { openToday(presentation.rowID) } label: {
             glanceLabel
         }
-        .buttonStyle(.plain)
-        .help(presentation.title + " · " + presentation.detail + ". Open Today for details.")
-        .accessibilityLabel(presentation.title + ", " + presentation.detail + ", open Today")
+        return button
+            .buttonStyle(PlainButtonStyle())
+            .help(help)
+            .accessibilityLabel(accessibilityLabel)
     }
 
     private var glanceLabel: some View {
