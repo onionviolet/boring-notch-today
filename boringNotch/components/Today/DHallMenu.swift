@@ -1,12 +1,12 @@
 import Foundation
 
-struct DHallMenu: Codable {
-    struct Meal: Codable, Identifiable {
+struct DHallMenu: Codable, Equatable, Sendable {
+    struct Meal: Codable, Identifiable, Equatable, Sendable {
         var id: Int
         var name: String
         var items: [Item]
     }
-    struct Item: Codable, Identifiable {
+    struct Item: Codable, Identifiable, Equatable, Sendable {
         var id: Int
         var station: String
         var name: String

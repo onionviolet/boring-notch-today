@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @main
 struct DHallMenuTests {
@@ -63,6 +64,26 @@ struct DHallMenuTests {
         let fresh = DHallMenu(date: kept.date, checkedAt: midnight.addingTimeInterval(1), meals: [])
         let merged = DHallStore.merged([old, kept], with: [fresh])
         precondition(merged.count == 1 && merged[0].checkedAt == fresh.checkedAt)
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent("dhall-" + UUID().uuidString)
+        let store = DHallStore(cache: fixture)
+        let staple = item("Fixture food " + UUID().uuidString)
+        let history = (0..<3).map { day in
+            DHallMenu(date: DHallMenu.shifted(today, by: -day)!, checkedAt: midnight,
+                      meals: [.init(id: 1, name: "Lunch", items: [staple]), .init(id: 2, name: "Dinner", items: [staple])])
+        }
+        store.apply(history)
+        precondition(store.score(staple) == -1)
+        var publications = 0
+        let subscription = store.objectWillChange.sink { publications += 1 }
+        store.apply(history)
+        precondition(publications == 0)
+        var rechecked = history
+        rechecked[0].checkedAt += 60
+        store.apply(rechecked)
+        precondition(publications == 1 && store.score(staple) == -1)
+        store.apply(Array(history.prefix(2))) // below six meals: invalidate the cached staple score
+        precondition(store.staples.isEmpty && store.score(staple) == 0)
+        withExtendedLifetime(subscription) {}
         print("D-hall parser, missing-date, entity, Eastern midnight, cache roundtrip, keyword and history merge checks passed")
         if CommandLine.arguments.contains("--live") {
             let store = DHallStore()

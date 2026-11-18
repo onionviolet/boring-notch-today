@@ -41,6 +41,7 @@ final class FakeWaveform: AudioCaptureLevelsConsumer {}
         try write(payload(), to: url)
         let store = TodayStore(defaults: defaults, clock: { instant }, directory: directory)
         store.reload()
+        precondition(store.nextTickInterval(at: instant) == 60)
         var publications = 0
         let subscription = store.objectWillChange.sink { publications += 1 }
         for _ in 0..<60 { instant += 1; store.tick(); store.reload() }
@@ -60,12 +61,15 @@ final class FakeWaveform: AudioCaptureLevelsConsumer {}
         precondition(store.payloadDecodeCount == rejectedCount && store.notice == "Latest update was rejected.")
         guard case .ready = store.state else { fatalError("Last good cards lost") }
         try write(payload(deadlines: true), to: url); store.reload()
+        precondition(abs(store.nextTickInterval(at: instant) - 10.01) < 0.001)
         precondition(store.payloadDecodeCount == rejectedCount + 1 && store.notice == nil)
         instant += 9; store.tick(); precondition(store.reminders.isEmpty)
         instant += 1; store.tick(); precondition(store.reminders.count == 1)
         let duePublications = publications
         store.tick(); precondition(publications == duePublications)
+        precondition(store.now < instant) // display clock deliberately lags the action clock
         store.snoozeReminders(); instant += 599; store.tick(); precondition(store.reminders.isEmpty)
+        precondition(abs(store.nextTickInterval(at: instant) - 1.01) < 0.001)
         instant += 1; store.tick(); precondition(store.reminders.count == 1)
         defaults.set(true, forKey: "today.quiet.enabled")
         defaults.set(0, forKey: "today.quiet.start"); defaults.set(0, forKey: "today.quiet.end")
@@ -75,7 +79,9 @@ final class FakeWaveform: AudioCaptureLevelsConsumer {}
         try write(payload(deadlines: true), to: url); store.reload(); instant += 11; store.reload()
         precondition(store.reminders.count == 1)
         guard case .ready(let plan, _) = store.state else { fatalError() }
-        store.startFocus(row: plan.rows[0]); instant += 1500; store.tick()
+        store.startFocus(row: plan.rows[0])
+        precondition(store.nextTickInterval(at: instant) == 1)
+        instant += 1500; store.tick()
         precondition(store.focusRemaining == "00:00")
         instant += 12 * 3600; store.tick(); precondition(store.reminders.isEmpty)
         guard case .ready(_, let stale) = store.state else { fatalError() }; precondition(stale)

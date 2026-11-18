@@ -129,7 +129,7 @@ Local behavior:
 
 | Condition | Behavior |
 |---|---|
-| Running app | Evaluate every second; coalesce all eligible reminders into one banner with one entry per deadline. Required work appears first. |
+| Running app | Evaluate at explicit reminder/countdown transitions, with a one-second clock during active focus and up to a minute between dedicated scheduler ticks when idle. File reloads also reconcile scheduling. Coalesce eligible reminders into one banner with one entry per deadline. Required work appears first. |
 | Sleep/wake or restart | Re-evaluate explicit timestamps. Undelivered reminders catch up together until one hour after cutoff; passed deadlines say “Deadline passed.” Delivered reminders do not replay on restart. |
 | Refresh | Stable IDs, timestamps, requirement and source keep their delivery identity. Title/detail changes update a visible banner. Changed schedule/source reference/requirement creates a new identity. Removed schedules disappear. |
 | Dismiss/snooze | Dismiss consumes this banner locally. Snooze stores a ten-minute retry across restart, subject to freshness, quiet hours and the one-hour catch-up limit. |

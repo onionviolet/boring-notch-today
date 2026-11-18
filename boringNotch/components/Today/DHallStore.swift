@@ -16,7 +16,15 @@ final class DHallStore: ObservableObject {
                                   "beef tips", "prime rib", "short rib", "brisket", "pork belly", "salmon", "shrimp", "crab", "lobster",
                                   "scallop", "lamb", "wings", "carving"]
     static let source = URL(string: "https://netnutrition.cbord.com/nn-prod/WLU")!
-    @Published private(set) var menus: [DHallMenu] = [] { didSet { staples = Self.staples(in: menus); scores = [:] } }
+    @Published private(set) var menus: [DHallMenu] = [] {
+        didSet {
+            // A new checkedAt alone cannot change food ranking.
+            if !oldValue.elementsEqual(menus, by: { $0.date == $1.date && $0.meals == $1.meals }) {
+                let next = Self.staples(in: menus)
+                if staples != next { staples = next; scores = [:] }
+            }
+        }
+    }
     /// Lowercased names that show up at most saved meals, e.g. Grilled Chicken Breast.
     private(set) var staples: Set<String> = []
     @Published private(set) var refreshing = false
@@ -29,10 +37,11 @@ final class DHallStore: ObservableObject {
     private var scores: [String: Int] = [:]
     private var lastAttempt = Date.distantPast
     private var lastFutureFetch = Date.distantPast
-    private let cache = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("boring.notch/DHall/menu.json")
+    private let cache: URL
 
-    init() {
+    init(cache: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("boring.notch/DHall/menu.json")) {
+        self.cache = cache
         if let data = try? Data(contentsOf: cache), data.count < 16_777_216 {
             let decoder = JSONDecoder()
             if let saved = try? decoder.decode([DHallMenu].self, from: data) { menus = Self.merged(saved, with: []) }
@@ -178,11 +187,14 @@ final class DHallStore: ObservableObject {
             guard day == DHallMenu.day() else { throw MenuError.dayChanged }
             if includeFuture { lastFutureFetch = Date() }
             let updated = Self.merged(menus, with: fetched)
-            menus = updated
+            apply(updated)
             notice = nil
             do {
-                try FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONEncoder().encode(updated).write(to: cache, options: .atomic)
+                let destination = cache
+                try await Task.detached(priority: .utility) {
+                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try JSONEncoder().encode(updated).write(to: destination, options: .atomic)
+                }.value
             } catch { notice = "Menu loaded; couldn't save an offline copy." }
         } catch {
             notice = (error as? MenuError)?.description ?? "Couldn't refresh: \(error.localizedDescription)"
@@ -191,8 +203,12 @@ final class DHallStore: ObservableObject {
 
     private func show(_ menu: DHallMenu, requestedOn day: String) {
         guard day == DHallMenu.day() else { return }
-        menus = Self.merged(menus, with: [menu])
+        apply(Self.merged(menus, with: [menu]))
         notice = nil
+    }
+
+    func apply(_ updated: [DHallMenu]) {
+        if menus != updated { menus = updated }
     }
 
     fileprivate enum MenuError: Error {

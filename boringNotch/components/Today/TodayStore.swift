@@ -17,7 +17,9 @@ final class TodayStore: ObservableObject {
     @Published private(set) var focus: TodayFocusSession?
     @Published var selectedRowID: String?
     private var scheduleTimer: Timer?
+    private var started = false
     private var wakeObserver: NSObjectProtocol?
+    private var preferencesObserver: NSObjectProtocol?
     private var ledger = TodayReminderLedger()
     private var timer: Timer?
     private var watcher: DispatchSourceFileSystemObject?
@@ -54,6 +56,7 @@ final class TodayStore: ObservableObject {
         timer?.invalidate()
         scheduleTimer?.invalidate()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        if let preferencesObserver { NotificationCenter.default.removeObserver(preferencesObserver) }
         debounceWorkItem?.cancel()
         watcher?.cancel()
     }
@@ -103,14 +106,15 @@ final class TodayStore: ObservableObject {
     }
 
     func start() {
+        guard !started else { return }
+        started = true
         reload()
         installWatcherIfNeeded()
-        guard timer == nil else { return }
-        scheduleTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
-        }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.reload() }
+        }
+        preferencesObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -270,6 +274,7 @@ final class TodayStore: ObservableObject {
     }
 
     func tick() {
+        defer { scheduleNextTick() }
         let instant = clock()
         if let payload = lastGoodPayload, case .ready = state {
             let next = State.ready(payload, isStale: payload.isStale(at: instant))
@@ -320,9 +325,11 @@ final class TodayStore: ObservableObject {
     func dismissReminders() { reminders = [] }
 
     func snoozeReminders() {
-        for item in reminders { ledger.snoozed[item.id] = now.addingTimeInterval(600) }
+        let retry = clock().addingTimeInterval(600)
+        for item in reminders { ledger.snoozed[item.id] = retry }
         reminders = []
         saveLedger()
+        scheduleNextTick()
     }
 
     private func saveLedger() {
@@ -333,12 +340,57 @@ final class TodayStore: ObservableObject {
         now = clock()
         focus = TodayFocusSession(rowID: row.id, work: row.work, endsAt: clock().addingTimeInterval(TimeInterval(TodayPresentationPreferences(defaults: defaults).focusMinutes * 60)))
         if let data = try? JSONEncoder().encode(focus) { defaults.set(data, forKey: "today.focus") }
+        scheduleNextTick()
     }
 
     func stopFocus() {
         guard focus != nil else { return }
         focus = nil
         defaults.removeObject(forKey: "today.focus")
+        scheduleNextTick()
+    }
+
+    // Only focus needs a one-second clock. Other transitions have explicit dates;
+    // the existing file poll and wake observer remain independent recovery paths.
+    func nextTickInterval(at instant: Date) -> TimeInterval {
+        if let focus, focus.endsAt > instant { return min(1, focus.endsAt.timeIntervalSince(instant)) }
+        var interval: TimeInterval = 60
+        func consider(_ date: Date) {
+            let delay = date.timeIntervalSince(instant)
+            if delay >= 0 { interval = min(interval, delay + 0.01) }
+        }
+        if let payload = lastGoodPayload {
+            consider(payload.generatedAt.addingTimeInterval(12 * 3600))
+        }
+        if let payload = currentPayload, !payload.isStale(at: instant) {
+            let deadlines = payload.deadlines ?? []
+            if !deadlines.isEmpty, defaults.bool(forKey: "today.quiet.enabled"),
+               let minute = Calendar.current.dateInterval(of: .minute, for: instant) {
+                consider(minute.end) // quiet-hour changes, including midnight and DST
+            }
+            for deadline in deadlines {
+                let remaining = deadline.dueAt.timeIntervalSince(instant)
+                if remaining > 0 {
+                    let remainder = remaining.truncatingRemainder(dividingBy: 60)
+                    consider(instant.addingTimeInterval(remainder > 0 ? remainder : min(60, remaining)))
+                }
+                consider(deadline.dueAt.addingTimeInterval(3600))
+                for reminder in deadline.reminders {
+                    consider(reminder.at)
+                }
+            }
+            for retry in ledger.snoozed.values { consider(retry) }
+        }
+        return max(0.05, interval)
+    }
+
+    private func scheduleNextTick() {
+        guard started else { return }
+        scheduleTimer?.invalidate()
+        scheduleTimer = Timer.scheduledTimer(withTimeInterval: nextTickInterval(at: clock()), repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        scheduleTimer?.tolerance = 0.01
     }
 
     private func nearestExistingWatchURL() -> URL? {
