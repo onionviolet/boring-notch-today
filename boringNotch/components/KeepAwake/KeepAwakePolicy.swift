@@ -40,6 +40,10 @@ struct KeepAwakeInputs: Equatable {
     var startedBelowThreshold: Bool
     var lowPowerMode: Bool
     var stopInLowPowerMode: Bool
+    /// The session started with Low Power Mode already on. An explicit start
+    /// there is honoured too; otherwise a click on battery with Low Power
+    /// Mode set to "On Battery" would end the session at once.
+    var startedInLowPower: Bool = false
     /// `ProcessInfo.thermalState` is `.serious` or `.critical`.
     var runningHot: Bool
 }
@@ -64,7 +68,7 @@ enum KeepAwakePolicy {
         if input.sessionActive {
             if batteryLow && !input.startedBelowThreshold {
                 endSession = .battery
-            } else if lowPower {
+            } else if lowPower && !input.startedInLowPower {
                 endSession = .lowPower
             }
         }

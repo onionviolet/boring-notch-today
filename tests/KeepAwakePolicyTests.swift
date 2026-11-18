@@ -31,6 +31,11 @@ import Foundation
         // Low Power Mode ends the session only when that cutoff is on.
         precondition(decide { $0.lowPowerMode = true }.endSession == .lowPower)
         precondition(decide { $0.lowPowerMode = true; $0.stopInLowPowerMode = false }.endSession == nil)
+        // A session started with Low Power Mode already on is honoured...
+        precondition(decide { $0.lowPowerMode = true; $0.startedInLowPower = true }.endSession == nil)
+        // ...but never for lid-closed.
+        let lpmLid = decide { $0.lowPowerMode = true; $0.startedInLowPower = true; $0.lidClosedWithSession = true }
+        precondition(lpmLid.endSession == nil && !lpmLid.lidGuard && lpmLid.lidBlockedBy == .lowPower)
 
         // Lid-closed follows the session, and drops when the session ends.
         precondition(decide { $0.lidClosedWithSession = true }.lidGuard)

@@ -29,7 +29,7 @@ The app is sandboxed in signed builds, so the XPC helper (unsandboxed) runs `sud
 ## Cutoffs (`KeepAwakePolicy`)
 
 - Battery at or below the threshold (default 20%) on battery ends a session, unless the session started below it. Lid-closed has no such override.
-- Low Power Mode ends a session and blocks lid-closed (setting, on by default).
+- Low Power Mode ends a session and blocks lid-closed (setting, on by default), unless the session started with Low Power Mode already on. Lid-closed has no such override. Before 2026-11-13 there was no override, so with Low Power Mode set to "On Battery" every click on battery was cancelled at once.
 - Thermal state serious or critical blocks lid-closed only. `.serious` can trip during heavy builds with the lid shut, which lets the Mac sleep and stops the work; that is the chosen trade (heat in a closed laptop beats a finished build). Change `runningHot` in `KeepAwakeManager` to `.critical` only if that proves too eager.
 
 ## One-time setup for lid-closed

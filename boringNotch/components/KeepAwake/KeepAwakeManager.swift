@@ -41,6 +41,7 @@ final class KeepAwakeManager: ObservableObject {
 
     private var assertionIDs: [IOPMAssertionID] = []
     private var startedBelowThreshold = false
+    private var startedInLowPower = false
     private var expiryTimer: Timer?
     private var pollTimer: Timer?
     private var agentLastSeen: Date?
@@ -110,6 +111,7 @@ final class KeepAwakeManager: ObservableObject {
         let battery = BatteryStatusViewModel.shared
         let threshold = Defaults[.keepAwakeBatteryThreshold]
         startedBelowThreshold = !battery.isPluggedIn && threshold > 0 && Int(battery.levelBattery) <= threshold
+        startedInLowPower = battery.isInLowPowerMode
 
         isActive = true
         lastStop = nil
@@ -228,6 +230,7 @@ final class KeepAwakeManager: ObservableObject {
             startedBelowThreshold: startedBelowThreshold,
             lowPowerMode: battery.isInLowPowerMode,
             stopInLowPowerMode: Defaults[.keepAwakeStopInLowPower],
+            startedInLowPower: startedInLowPower,
             runningHot: thermal == .serious || thermal == .critical
         ))
 
