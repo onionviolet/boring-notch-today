@@ -33,6 +33,12 @@ extension SkyLightOperator {
 
 class BoringNotchSkyLightWindow: NSPanel {
     private var isSkyLightEnabled: Bool = false
+    /// Where NotchWindowManager last placed the notch. Window managers
+    /// (Rectangle, AeroSpace) and Stage Manager move windows through
+    /// Accessibility, which `isMovable` does not block, and the notch then
+    /// sat mid-screen until relaunch. Any move that is not ours is undone.
+    /// Adapted from reesoousa/boringCode 8514dbf.
+    var pinnedOrigin: NSPoint?
 
     override init(
         contentRect: NSRect,
@@ -88,6 +94,13 @@ class BoringNotchSkyLightWindow: NSPanel {
         NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification, object: self)
             .sink { [weak self] _ in
                 self?.updateCollectionBehavior()
+            }
+            .store(in: &observers)
+
+        NotificationCenter.default.publisher(for: NSWindow.didMoveNotification, object: self)
+            .sink { [weak self] _ in
+                guard let self, let pinned = self.pinnedOrigin, self.frame.origin != pinned else { return }
+                self.setFrameOrigin(pinned)
             }
             .store(in: &observers)
 
