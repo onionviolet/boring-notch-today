@@ -6,6 +6,12 @@ from pathlib import Path
 import subprocess
 import sys
 
+# Backstop for the cleanup policy (docs/Local-workflows.md): trim leftovers no
+# task has touched for three days, whether or not an agent remembered to.
+# Runs before the build lock is taken; a failure here never blocks the build.
+subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "trim-build-leftovers.py"),
+                "--apply", "--min-age-days", "3"], check=False)
+
 base = Path.home() / "Library/Application Support/boring-notch-local-build"
 base.mkdir(parents=True, exist_ok=True)
 bare = base / "source.git"

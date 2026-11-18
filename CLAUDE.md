@@ -26,6 +26,8 @@ Full contract, status semantics and security limits: `docs/Today.md`. Read it be
 
 User instruction, October 12, 2026: after an authorized local app update, verify the replacement launches from `/Applications/Boring Notch.app`, then delete the previous app copy created for that update. Keep a temporary rollback copy only until the replacement passes its launch check; do not retain old app backups after success. If installation or launch fails, preserve the previous app for recovery. This authorizes cleanup associated with future requested updates, not unrelated app deletion or automatic installation.
 
+User instruction, November 13, 2026: do updates with `python3 scripts/install-local-update.py`, which runs the swap, launch check, old-copy deletion and build-leftover trim as one forced sequence and keeps the previous app if anything fails. The nightly job trims untouched leftovers as a backstop. Scope and exclusions: `docs/Local-workflows.md`.
+
 ## Build and test
 
 Run from the repo root. Python, MCP smoke, standalone Swift and the unsigned Release command below passed on 2026-10-07; see `HANDOFF.md` for the distinct gates and runtime limits.
@@ -62,7 +64,7 @@ xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Rel
 
 ## Verification gates
 
-Keep these separate and never upgrade one to another: source edit, Python/Swift tests, Release build (unsigned vs signed), runtime preview, installed in `/Applications`, visually human-accepted, committed, pushed. Hosted CI never ran on the fork; do not claim it. Signed local launch, physical notch gestures, external display, camera/Bluetooth and notification-reply delivery were never verified.
+Keep these separate and never upgrade one to another: source edit, Python/Swift tests, Release build (unsigned vs signed), runtime preview, installed in `/Applications`, visually human-accepted, committed, pushed. Hosted CI does run on the fork's `main` pushes (first passing "Build for macOS" run: 2026-11-14); claim it only for the exact commit it ran on. Signed local launch, physical notch gestures, external display, camera/Bluetooth and notification-reply delivery were never verified.
 
 ## Upstream
 
