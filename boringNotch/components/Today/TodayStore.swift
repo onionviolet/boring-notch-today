@@ -270,7 +270,29 @@ final class TodayStore: ObservableObject {
             let seconds = due.timeIntervalSince(at)
             return seconds > 0 ? Int(ceil(seconds / 60)) : -1
         }
-        return deadlines.contains { bucket($0.dueAt, old) != bucket($0.dueAt, new) }
+        for deadline in deadlines {
+            if bucket(deadline.dueAt, old) != bucket(deadline.dueAt, new) { return true }
+        }
+        return false
+    }
+
+    private func updatePublishedClock(at instant: Date) {
+        guard now != instant else { return }
+
+        // Focus displays seconds, including the tick that crosses its end.
+        if let focus, focus.endsAt > min(now, instant) {
+            now = instant
+            return
+        }
+
+        // Deadlines only need a redraw when their countdown minute changes.
+        guard latestPayloadAccepted,
+              let payload = lastGoodPayload,
+              !payload.isStale(at: instant),
+              let deadlines = payload.deadlines else { return }
+        if Self.countdownChanged(deadlines, from: now, to: instant) {
+            now = instant
+        }
     }
 
     func tick() {
@@ -280,15 +302,7 @@ final class TodayStore: ObservableObject {
             let next = State.ready(payload, isStale: payload.isStale(at: instant))
             if state != next { state = next }
         }
-        let focusTime = focus.map { $0.endsAt > now || $0.endsAt > instant } ?? false
-        let deadlineTime = latestPayloadAccepted && (lastGoodPayload.map {
-            !$0.isStale(at: instant) && !($0.deadlines ?? []).isEmpty
-        } ?? false)
-        // Focus shows seconds; deadlines only change when a countdown minute turns over. Publishing
-        // `now` every second redraws everything observing the store (ContentView included).
-        if now != instant, focusTime || (deadlineTime && Self.countdownChanged(lastGoodPayload?.deadlines ?? [], from: now, to: instant)) {
-            now = instant
-        }
+        updatePublishedClock(at: instant)
         let now = instant // semantic scheduling never relies on the publication gate
         let quiet = TodayQuietHours(enabled: defaults.bool(forKey: "today.quiet.enabled"),
             startMinute: defaults.object(forKey: "today.quiet.start") as? Int ?? 1320,

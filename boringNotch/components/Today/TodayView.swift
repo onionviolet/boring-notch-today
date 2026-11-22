@@ -463,28 +463,42 @@ struct TodayNotchGlance: View {
     }
 
     var body: some View {
-        Button { openToday(presentation.rowID) } label: {
-            HStack(spacing: 0) {
-                Text(presentation.label)
-                    .padding(.horizontal, 2)
-                    .frame(width: presentation.geometry.leftWidth, alignment: .leading)
-                    .clipped()
-                Color.clear.frame(width: notchWidth)
-                Text(presentation.status)
-                    .monospacedDigit()
-                    .foregroundStyle(presentation.isReminder ? .orange : .secondary)
-                    .padding(.horizontal, 2)
-                    .frame(width: presentation.geometry.rightWidth, alignment: .trailing)
-                    .clipped()
-            }
-            .font(Font(Self.font))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(height: height)
-            .contentShape(Rectangle())
+        let help = Text(verbatim: "\(presentation.title) · \(presentation.detail). Open Today for details.")
+        let accessibilityLabel = Text(verbatim: "\(presentation.title), \(presentation.detail), open Today")
+        let button = Button { openToday(presentation.rowID) } label: {
+            glanceLabel
         }
-        .buttonStyle(.plain)
-        .help(presentation.title + " · " + presentation.detail + ". Open Today for details.")
-        .accessibilityLabel(presentation.title + ", " + presentation.detail + ", open Today")
+        return button
+            .buttonStyle(PlainButtonStyle())
+            .help(help)
+            .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var glanceLabel: some View {
+        HStack(spacing: 0) {
+            Text(presentation.label)
+                .padding(.horizontal, 2)
+                .frame(width: presentation.geometry.leftWidth, alignment: .leading)
+                .clipped()
+            Color.clear.frame(width: notchWidth)
+            statusLabel
+        }
+        .font(Font(Self.font))
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(height: height)
+        .contentShape(Rectangle())
+    }
+
+    private var statusLabel: some View {
+        let style = presentation.isReminder
+            ? AnyShapeStyle(Color.orange)
+            : AnyShapeStyle(HierarchicalShapeStyle.secondary)
+        return Text(presentation.status)
+            .monospacedDigit()
+            .foregroundStyle(style)
+            .padding(.horizontal, 2)
+            .frame(width: presentation.geometry.rightWidth, alignment: .trailing)
+            .clipped()
     }
 }
