@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreFoundation
 import Darwin
 import Foundation
 
@@ -10,7 +11,10 @@ final class TodayStore: ObservableObject {
     static let shared = TodayStore()
     @Published private(set) var state: State = .loading
     @Published private(set) var bridgeConnection: TodayBridgeConnection = .disconnected
-    @Published private(set) var refreshPending = false
+    @Published private(set) var refreshRequestedAt: Date?
+    @Published private(set) var refreshIssue: String?
+    var refreshPending: Bool { refreshRequestedAt != nil }
+    var showingPreviousPlan: Bool { lastGoodPayload != nil && !latestPayloadAccepted }
     @Published private(set) var notice: String?
     @Published private(set) var reminders: [TodayDueReminder] = []
     @Published private(set) var now = Date()
@@ -28,7 +32,6 @@ final class TodayStore: ObservableObject {
     private var debounceWorkItem: DispatchWorkItem?
     private var lastGoodPayload: TodayPayload?
     private var latestPayloadAccepted = false
-    private var lastRefreshRequestAt: Date?
 
     private var payloadIdentity: PayloadIdentity?
     private(set) var payloadDecodeCount = 0
@@ -127,11 +130,11 @@ final class TodayStore: ObservableObject {
     func reload() {
         defer { tick() }
         let previousBridge = bridgeConnection
-        let previousPending = refreshPending
         let nextBridge = readBridgeStatus()
-        let nextPending = readRefreshPending()
         if previousBridge != nextBridge { bridgeConnection = nextBridge }
-        if previousPending != nextPending { refreshPending = nextPending }
+        let requestedAt = try? readRefreshRequestDate()
+        if refreshRequestedAt != requestedAt { refreshRequestedAt = requestedAt }
+        if requestedAt != nil, refreshIssue != nil { refreshIssue = nil }
         guard FileManager.default.fileExists(atPath: payloadURL.path) else {
             payloadIdentity = nil
             lastGoodPayload = nil
@@ -175,34 +178,55 @@ final class TodayStore: ObservableObject {
     }
 
     func requestRefresh() {
-        let now = clock()
-        guard lastRefreshRequestAt.map({ now.timeIntervalSince($0) >= 2 }) ?? true else {
-            notice = "A refresh is already pending."
-            return
-        }
-        let requestID = UUID().uuidString
-        let body: [String: Any] = [
-            "schemaVersion": 1,
-            "id": requestID,
-            "requestedAt": ISO8601DateFormatter().string(from: now),
-            "source": "Boring Notch Today"
-        ]
         do {
             try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, refreshRequestURL])
-            if FileManager.default.fileExists(atPath: storageDirectory.path) {
-                let values = try storageDirectory.resourceValues(forKeys: [.isSymbolicLinkKey])
-                guard values.isSymbolicLink != true else { throw TodayPayloadError.unsafeAction("storage") }
+            let files = FileManager.default
+            try files.createDirectory(at: storageDirectory, withIntermediateDirectories: true,
+                                      attributes: [.posixPermissions: 0o700])
+            try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: storageDirectory.path)
+
+            // Python holds the same lock through match, publish and acknowledgement.
+            // Keep slow publisher I/O off the UI thread by declining a busy lock.
+            let lockURL = storageDirectory.appendingPathComponent(".refresh-request.lock")
+            let fd = open(lockURL.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            guard fd >= 0 else { throw TodayPayloadError.unsafeAction("refresh lock") }
+            defer { close(fd) }
+            var info = stat()
+            guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+                  info.st_uid == getuid(), info.st_nlink == 1, (info.st_mode & 0o077) == 0 else {
+                throw TodayPayloadError.unsafeAction("refresh lock")
             }
-            try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: storageDirectory.path)
-            let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
-            try data.write(to: refreshRequestURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: refreshRequestURL.path)
-            lastRefreshRequestAt = now
-            refreshPending = true
-            notice = "Refresh requested, waiting for an active agent."
+            guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+                if errno == EWOULDBLOCK {
+                    refreshRequestedAt = try? readRefreshRequestDate()
+                    refreshIssue = refreshPending ? nil : "Refresh is busy. Try again in a moment."
+                    return
+                }
+                throw TodayPayloadError.unsafeAction("refresh lock")
+            }
+
+            if let existing = try readRefreshRequestDate() {
+                refreshRequestedAt = existing
+            } else {
+                let instant = clock()
+                let body: [String: Any] = [
+                    "schemaVersion": 1, "id": UUID().uuidString,
+                    "requestedAt": ISO8601DateFormatter().string(from: instant),
+                    "source": "Boring Notch Today"
+                ]
+                let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+                let temporary = storageDirectory.appendingPathComponent(".refresh-\(UUID().uuidString)")
+                defer { try? files.removeItem(at: temporary) }
+                guard files.createFile(atPath: temporary.path, contents: data,
+                                       attributes: [.posixPermissions: 0o600]),
+                      rename(temporary.path, refreshRequestURL.path) == 0 else {
+                    throw TodayPayloadError.unsafeAction("refresh request")
+                }
+                refreshRequestedAt = try readRefreshRequestDate()
+            }
+            refreshIssue = nil
         } catch {
-            notice = "Could not create the local refresh request."
+            refreshIssue = "Could not create the local refresh request."
         }
     }
 
@@ -222,27 +246,45 @@ final class TodayStore: ObservableObject {
         }
     }
 
-    private func readRefreshPending() -> Bool {
-        guard FileManager.default.fileExists(atPath: refreshRequestURL.path) else {
-            return false
+    private func readRefreshRequestDate() throws -> Date? {
+        try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, refreshRequestURL])
+        let fd = open(refreshRequestURL.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        if fd < 0, errno == ENOENT { return nil }
+        guard fd >= 0 else { throw TodayPayloadError.unsafeAction("refresh request") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+              info.st_uid == getuid(), info.st_nlink == 1, (info.st_mode & 0o077) == 0 else {
+            throw TodayPayloadError.unsafeAction("refresh request")
         }
-        do {
-            try Self.rejectSymlinks([storageDirectory.deletingLastPathComponent(), storageDirectory, refreshRequestURL])
-            let values = try refreshRequestURL.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey])
-            guard values.isSymbolicLink != true, (values.fileSize ?? 0) <= 4 * 1024,
-                  let object = try JSONSerialization.jsonObject(with: Data(contentsOf: refreshRequestURL)) as? [String: Any],
-                  Set(object.keys) == Set(["schemaVersion", "id", "requestedAt", "source"]),
-                  object["schemaVersion"] as? Int == 1,
-                  object["source"] as? String == "Boring Notch Today",
-                  let requestID = object["id"] as? String, UUID(uuidString: requestID) != nil,
-                  let requestedAt = object["requestedAt"] as? String,
-                  ISO8601DateFormatter().date(from: requestedAt) != nil else {
-                throw TodayPayloadError.invalidText("refresh request")
-            }
-            return true
-        } catch {
-            return false
-        }
+        let limit = 4 * 1024
+        guard info.st_size <= limit, let data = try handle.read(upToCount: limit + 1), data.count <= limit,
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              Set(object.keys) == Set(["schemaVersion", "id", "requestedAt", "source"]),
+              let schema = object["schemaVersion"] as? NSNumber,
+              CFGetTypeID(schema) != CFBooleanGetTypeID(), String(cString: schema.objCType) != "d",
+              schema.intValue == 1, object["source"] as? String == "Boring Notch Today",
+              let id = object["id"] as? String, UUID(uuidString: id)?.uuidString.lowercased() == id.lowercased(),
+              let timestamp = object["requestedAt"] as? String else { return nil }
+        return Self.refreshDate(timestamp)
+    }
+
+    private static let refreshTimestamp = #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$"#
+
+    private static let refreshDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXXXX"
+        formatter.isLenient = false
+        return formatter
+    }()
+
+    private static func refreshDate(_ timestamp: String) -> Date? {
+        guard let match = timestamp.range(of: refreshTimestamp, options: .regularExpression),
+              match == timestamp.startIndex..<timestamp.endIndex else { return nil }
+        let seconds = timestamp.replacingOccurrences(of: #"\.[0-9]+"#, with: "", options: .regularExpression)
+        return refreshDateFormatter.date(from: seconds)
     }
 
     private var currentPayload: TodayPayload? {
@@ -251,7 +293,8 @@ final class TodayStore: ObservableObject {
     }
 
     var upcomingDeadline: TodayDeadline? {
-        currentPayload.flatMap { TodaySchedule.nextDeadline(payload: $0, at: now) }
+        guard case .ready(_, isStale: false) = state else { return nil }
+        return currentPayload.flatMap { TodaySchedule.nextDeadline(payload: $0, at: clock()) }
     }
 
     var upcomingWork: String? {

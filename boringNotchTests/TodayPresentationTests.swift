@@ -197,4 +197,65 @@ final class TodayPresentationTests: XCTestCase {
             try saveRender(host, "o7-today-render")
         }
     }
+
+    func testPinnedPanelRendersFreshPendingStaleRejectedAndEmpty() throws {
+        try suite { defaults, name in
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let payloadURL = directory.appendingPathComponent("payload.json")
+            let start = String(repeating: "Read the assigned pages and note the two key examples. ", count: 8)
+            let work = String(repeating: "Read the assigned pages ", count: 10)
+            var clock = Date()
+            let row = TodayRow(id: "reading", work: work, purpose: "Practice", studyMethod: "Read", doneWhen: "Check notes", time: "30 min", whyNow: "For class", basis: .plan)
+            let due = clock.addingTimeInterval(13 * 3600)
+            let deadline = TodayDeadline(id: "due", rowID: row.id, dueAt: due, required: true, actionID: nil,
+                                         reminders: [.init(id: "prep", at: due, kind: .preparation)])
+            let payload = TodayPayload(schemaVersion: 2, generatedAt: clock, rows: [row],
+                                       next: nil, protectedTime: nil, start: start, anki: nil, actions: [],
+                                       deadlines: [deadline])
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            try encoder.encode(payload).write(to: payloadURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payloadURL.path)
+            let store = TodayStore(defaults: defaults, clock: { clock }, directory: directory)
+            store.reload()
+            let host = NSHostingView(rootView: TodayView(store: store, startsStore: false, scrollDefaults: defaults)
+                .frame(width: 640, height: 250).background(Color.black).environment(\.colorScheme, .dark))
+            host.frame = NSRect(x: 0, y: 0, width: 640, height: 250)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host
+            defer { window.contentView = nil }
+            settle(host)
+            XCTAssertEqual(store.upcomingDeadline?.id, deadline.id)
+            try saveRender(host, "today-pinned-fresh")
+
+            store.startFocus(row: row)
+            store.requestRefresh()
+            settle(host)
+            XCTAssertTrue(store.refreshPending)
+            XCTAssertGreaterThan(try XCTUnwrap(scroll(in: host)).frame.height, 70)
+            try saveRender(host, "today-pinned-pending-focus")
+
+            clock += 12 * 3600 + 1
+            store.tick()
+            settle(host)
+            XCTAssertNil(store.upcomingDeadline)
+            try saveRender(host, "today-pinned-stale")
+
+            try Data("{}".utf8).write(to: payloadURL)
+            store.reload()
+            settle(host)
+            XCTAssertTrue(store.showingPreviousPlan)
+            try saveRender(host, "today-pinned-rejected")
+
+            try FileManager.default.removeItem(at: payloadURL)
+            store.reload()
+            settle(host)
+            XCTAssertEqual(store.state, .empty)
+            XCTAssertTrue(store.refreshPending)
+            try saveRender(host, "today-pinned-empty")
+        }
+    }
 }

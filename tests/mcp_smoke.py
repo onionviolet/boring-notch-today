@@ -44,6 +44,9 @@ async def main() -> None:
             assert result.structured_content["ok"] is True
             assert (today_root / "payload.json").exists()
 
+            status = await client.call_tool("today_status", {})
+            assert status.structured_content["planState"] == "fresh"
+
             request_id = str(uuid.uuid4())
             request = {
                 "schemaVersion": 1,

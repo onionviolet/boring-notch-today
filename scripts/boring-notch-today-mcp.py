@@ -14,6 +14,8 @@ from typing import Any
 from mcp.server import MCPServer
 
 from today_bridge import (
+    AtomicWriteSyncError,
+    RefreshAcknowledgementError,
     bridge_summary,
     now_string,
     publish_payload,
@@ -37,18 +39,39 @@ mcp = MCPServer(
 def publish_today(payload: dict[str, Any], refresh_request_id: str | None = None) -> dict[str, Any]:
     """Publish one schema-v1/v2 Today snapshot; optionally acknowledge its refresh request."""
     ensure_heartbeat()
+    record_status("refreshing")
+    warning = None
     try:
-        write_bridge_status("refreshing")
         publish_payload(payload, refresh_request_id=refresh_request_id)
-        published_at = now_string()
-        write_bridge_status("connected", last_publish_at=published_at)
-        return {"ok": True, "publishedAt": published_at}
-    except Exception:
-        try:
-            write_bridge_status("error")
-        except Exception:
-            pass
-        return {"ok": False, "error": "The bounded Today payload was rejected."}
+    except RefreshAcknowledgementError:
+        warning = "Snapshot published. The refresh request is still pending."
+    except AtomicWriteSyncError:
+        warning = "Snapshot replaced. Disk sync failed and no refresh was acknowledged."
+    except ValueError:
+        record_status("error")
+        return {"ok": False, "error": "The Today payload or matching refresh request was rejected."}
+    except OSError:
+        record_status("error")
+        return {"ok": False, "error": "Could not write the local Today snapshot."}
+
+    published_at = now_string()
+    if not record_status("connected", published_at=published_at) and warning is None:
+        warning = "Snapshot published. The connection status could not be updated."
+    result = {"ok": True, "publishedAt": published_at}
+    if warning:
+        result["warning"] = warning
+    return result
+
+
+def record_status(state: str, *, published_at: str | None = None) -> bool:
+    try:
+        if published_at is None:
+            write_bridge_status(state)
+        else:
+            write_bridge_status(state, last_publish_at=published_at)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 @mcp.tool()
@@ -62,7 +85,10 @@ def today_status() -> dict[str, Any]:
 def pending_today_refresh() -> dict[str, Any]:
     """Return the current bounded refresh request, if one exists."""
     ensure_heartbeat()
-    request = read_refresh_request()
+    try:
+        request = read_refresh_request()
+    except (OSError, ValueError):
+        return {"pending": False, "request": None, "refreshRequestInvalid": True}
     return {"pending": request is not None, "request": request}
 
 

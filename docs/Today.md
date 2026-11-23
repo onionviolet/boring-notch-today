@@ -35,23 +35,30 @@ codex mcp add boring-notch-today -- uv run /absolute/path/to/boring-notch-today/
 codex mcp list
 ```
 
-Restart the Codex client after adding it. The server exposes only `publish_today`, `today_status`, and `pending_today_refresh`, plus the read-only `boring-notch://today/status` resource. An authorized AI can call `publish_today` with a schema-v1 object and optionally the matching refresh-request ID. The tool reuses the same validator and atomic publisher as the CLI.
+Restart the Codex client after adding it. The server exposes only `publish_today`, `today_status`, and `pending_today_refresh`, plus the read-only `boring-notch://today/status` resource. An authorized AI can call `publish_today` with a schema-v1/v2 object and optionally the matching refresh-request ID. The tool reuses the same validator and atomic publisher as the CLI.
 
-The UI status is literal:
-
-- **Connected** means at least one local Codex MCP transport is active. When several tasks are open,
-  they elect one heartbeat writer so the shared status file is not rewritten by every process.
-- **Refresh requested, waiting for agent** means the sidecar reports an outstanding bounded request.
-- **Offline** or **Connection inactive** means the validated file fallback still works.
-- **Connection needs attention** means the app rejected the status record; it does not display raw bridge errors.
+Today shows when the saved plan was generated and whether it is stale or a
+previous plan retained after a rejected replacement. The header has one refresh
+button across all plan states, with a waiting message while a request is
+pending. The information button shows the transport, exact request time when
+pending, and build identity when available. A live heartbeat means a local MCP
+transport is active. The bridge status tool reports plan state as `missing`,
+`invalid`, `fresh` or `stale`.
 
 The heartbeat starts with the MCP transport, preserves the last successful publication time, and naturally
 becomes stale within 15 seconds after the final transport exits. No persistent daemon or network listener is used.
 
-The Refresh button writes only a bounded local request containing schema version, UUID, timestamp, and the fixed source name. It does not include a prompt, path, command, URL, credential, or vault text. A connected or scheduled AI workflow must still call `pending_today_refresh`, read only sources it is separately authorized to use, and publish a replacement. MCP notifications and marker creation do not wake an absent or idle agent by themselves.
+The Refresh button writes only a bounded local request containing schema version, UUID, timestamp, and the fixed source name. It does not include a prompt, path, command, URL, credential, or vault text. A connected or scheduled AI workflow must still call `pending_today_refresh`, read only sources it is separately authorized to use, and publish a replacement with the matching ID. Repeated clicks and restarts
+reuse one pending request. Swift request creation and Python publication and
+acknowledgement share a lock. A failed acknowledgement leaves the request
+eligible for retry and the MCP result reports that the snapshot was published.
+MCP notifications and marker creation do not wake an absent or idle agent by themselves.
 
 The developer-only `--today-preview-window` argument renders the same `TodayView` used inside the notch.
-Start and the update age stay above the scrollable task list. Task rows expand to show their purpose, method, urgency, completion criteria, and basis. Hover over the connection label for technical details.
+Start, the next required deadline, focus state, plan age and refresh stay above
+the scrollable task list. Start opens the full instruction. Clicking the
+required deadline reveals its task card. Task rows expand to show purpose,
+method, urgency, completion criteria and basis.
 
 Today opens at 640 × 300 points; the other tabs retain their 640 × 190 size. Switching tabs resizes the panel. The Today view fills the available width and height below the tab bar, keeping the scroll viewport inside the rounded bottom edge. Long time labels wrap in a trailing column rather than squeezing task titles.
 

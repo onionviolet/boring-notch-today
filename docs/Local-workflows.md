@@ -13,6 +13,19 @@ Run it manually with `python3 scripts/local-nightly-build.py`. Check the last
 exit status with `launchctl print gui/$(id -u)/local.weibao.boring-notch-nightly`.
 An unsigned build is not an installed or signed release.
 
+# Local Release candidate
+
+Run `python3 scripts/build-local-release.py` from a Git checkout. It builds the
+unsigned Release app, sets the build revision visible in Today connection
+details, and writes `Boring Notch.build.json` next to the app. The receipt stores
+the checkout commit, any pending merge parents, a fingerprint of source
+changes, the build configuration and Xcode version, and the executable hash.
+A source change during the build prevents a receipt from being written.
+
+The installer checks a supplied candidate receipt against the executable hash
+and embedded revision. Older candidates built without a receipt can still be
+installed, with source identity recorded as unknown.
+
 # Cleanup after an app update
 
 User instruction, November 13, 2026: trimming is forced, not left to an agent

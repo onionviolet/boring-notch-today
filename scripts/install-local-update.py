@@ -86,6 +86,16 @@ def main() -> int:
     if not INSTALLED.is_dir():
         sys.exit(f"{INSTALLED} is missing; this script only replaces an existing install")
 
+    candidate_hash = digest(binary(candidate))
+    build_receipt_path = candidate.with_suffix(".build.json")
+    build_receipt = None
+    if build_receipt_path.exists():
+        build_receipt = json.loads(build_receipt_path.read_text())
+        candidate_info = plistlib.loads((candidate / "Contents/Info.plist").read_bytes())
+        if (build_receipt.get("executableSHA256") != candidate_hash
+                or build_receipt.get("sourceLabel") != candidate_info.get("BNSourceRevision")):
+            sys.exit("Build receipt does not match the candidate. Rebuild before installing.")
+
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     folder = REPO / "work" / f"install-{stamp}"
     folder.mkdir(parents=True)
@@ -94,12 +104,11 @@ def main() -> int:
     receipt = {
         "candidate": str(candidate),
         "startedAt": now(),
-        "executableSHA256": digest(binary(candidate)),
+        "executableSHA256": candidate_hash,
         "previousExecutableSHA256": digest(binary(INSTALLED)),
-        "sourceCommit": subprocess.run(["/usr/bin/git", "-C", str(REPO), "rev-parse", "HEAD"],
-                                       capture_output=True, text=True).stdout.strip(),
-        "sourceDirty": bool(subprocess.run(["/usr/bin/git", "-C", str(REPO), "status", "--porcelain"],
-                                           capture_output=True, text=True).stdout.strip()),
+        "sourceCommit": build_receipt["sourceCommit"] if build_receipt else None,
+        "sourceDirty": build_receipt["sourceDirty"] if build_receipt else None,
+        "build": build_receipt,
     }
 
     def save() -> None:
@@ -118,7 +127,7 @@ def main() -> int:
     save()
     subprocess.run(["/usr/bin/ditto", str(candidate), str(staged)], check=True)
     wanted = manifest(candidate)
-    if manifest(staged) != wanted:
+    if digest(binary(staged)) != candidate_hash or manifest(staged) != wanted:
         return fail("staged bundle differs from the candidate")
 
     subprocess.run(["/usr/bin/swift", "-e", QUIT], check=False)

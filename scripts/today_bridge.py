@@ -22,6 +22,10 @@ MAX_TEXT = 500
 BRIDGE_STALE_SECONDS = 15
 _KEEP_LAST_PUBLISH = object()
 RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
+REFRESH_TIMESTAMP = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?"
+    r"(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])"
+)
 ROOT_KEYS = {"schemaVersion", "generatedAt", "rows", "next", "protected", "start", "anki", "actions", "deadlines"}
 ROW_KEYS = {"id", "work", "purpose", "studyMethod", "doneWhen", "time", "whyNow", "basis"}
 ANKI_KEYS = {"status", "reviewedToday", "newCards"}
@@ -195,6 +199,14 @@ def ensure_storage() -> pathlib.Path:
     return root
 
 
+class AtomicWriteSyncError(OSError):
+    """The new record is visible, but syncing its directory failed."""
+
+
+class RefreshAcknowledgementError(OSError):
+    """The snapshot was published, but the request could not be removed."""
+
+
 def atomic_write(path: pathlib.Path, data: bytes, *, maximum: int) -> None:
     if len(data) > maximum:
         invalid("bridge record exceeds size limit")
@@ -211,11 +223,14 @@ def atomic_write(path: pathlib.Path, data: bytes, *, maximum: int) -> None:
             os.fsync(handle.fileno())
         temp_path.chmod(0o600)
         os.replace(temp_path, path)
-        directory_fd = os.open(root, os.O_RDONLY)
         try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+            directory_fd = os.open(root, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError as error:
+            raise AtomicWriteSyncError("record replaced but directory sync failed") from error
     finally:
         if temp_path is not None and temp_path.exists():
             temp_path.unlink()
@@ -238,8 +253,8 @@ def _open_lock_file(name: str) -> int:
 
 
 @contextmanager
-def bridge_status_lock():
-    fd = _open_lock_file(".bridge-status.lock")
+def bridge_lock(name: str):
+    fd = _open_lock_file(name)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
@@ -266,27 +281,34 @@ def release_heartbeat_leader(fd: int) -> None:
 
 def publish_payload(data: Any, *, refresh_request_id: str | None = None) -> pathlib.Path:
     validated = validate_payload(data)
-    if refresh_request_id is not None:
-        request = read_refresh_request()
-        if request is None or request["id"] != refresh_request_id:
-            invalid("refresh request does not match")
-    _, payload, _, _ = storage_paths()
+    _, payload, refresh, _ = storage_paths()
     encoded = json.dumps(validated, separators=(",", ":"), ensure_ascii=False).encode()
-    atomic_write(payload, encoded, maximum=MAX_PAYLOAD_BYTES)
-    if refresh_request_id is not None:
-        acknowledge_refresh(refresh_request_id)
+    if refresh_request_id is None:
+        atomic_write(payload, encoded, maximum=MAX_PAYLOAD_BYTES)
+    else:
+        with bridge_lock(".refresh-request.lock"):
+            request = read_refresh_request()
+            if request is None or request["id"] != refresh_request_id:
+                invalid("refresh request does not match")
+            atomic_write(payload, encoded, maximum=MAX_PAYLOAD_BYTES)
+            try:
+                refresh.unlink()
+            except OSError as error:
+                raise RefreshAcknowledgementError("snapshot published but refresh acknowledgement failed") from error
     return payload
 
 
-def read_bounded_json(path: pathlib.Path, maximum: int) -> Any | None:
-    if not path.exists():
-        return None
+def read_bounded_json(path: pathlib.Path, maximum: int, *, private: bool = False) -> Any | None:
     _reject_unsafe_storage(path, regular_file=True)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags)
+    flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_size > maximum:
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                or info.st_size > maximum or (private and info.st_mode & 0o077)):
             invalid("unsafe bridge record")
         raw = os.read(fd, maximum + 1)
     finally:
@@ -299,32 +321,37 @@ def read_bounded_json(path: pathlib.Path, maximum: int) -> Any | None:
 def validate_refresh_request(data: Any) -> dict[str, str]:
     if not isinstance(data, dict) or set(data) != {"schemaVersion", "id", "requestedAt", "source"}:
         invalid("invalid refresh request")
-    if data["schemaVersion"] != 1 or data["source"] != "Boring Notch Today":
+    if type(data["schemaVersion"]) is not int or data["schemaVersion"] != 1 or data["source"] != "Boring Notch Today":
         invalid("invalid refresh request")
     try:
-        uuid.UUID(data["id"])
+        if str(uuid.UUID(data["id"])) != data["id"].lower():
+            invalid("invalid refresh request id")
     except (ValueError, TypeError, AttributeError):
         invalid("invalid refresh request id")
     bounded_text(data["requestedAt"], "requestedAt")
-    if not RFC3339.fullmatch(data["requestedAt"]):
+    if not REFRESH_TIMESTAMP.fullmatch(data["requestedAt"]):
+        invalid("invalid refresh request timestamp")
+    try:
+        dt.datetime.fromisoformat(re.sub(r"\.\d+", "", data["requestedAt"]).replace("Z", "+00:00"))
+    except ValueError:
         invalid("invalid refresh request timestamp")
     return data
 
 
 def read_refresh_request() -> dict[str, str] | None:
     _, _, refresh, _ = storage_paths()
-    data = read_bounded_json(refresh, MAX_STATUS_BYTES)
+    data = read_bounded_json(refresh, MAX_STATUS_BYTES, private=True)
     return None if data is None else validate_refresh_request(data)
 
 
 def acknowledge_refresh(request_id: str) -> bool:
-    _, _, refresh, _ = storage_paths()
-    request = read_refresh_request()
-    if request is None or request["id"] != request_id:
-        return False
-    _reject_unsafe_storage(refresh, regular_file=True)
-    refresh.unlink()
-    return True
+    with bridge_lock(".refresh-request.lock"):
+        _, _, refresh, _ = storage_paths()
+        request = read_refresh_request()
+        if request is None or request["id"] != request_id:
+            return False
+        refresh.unlink()
+        return True
 
 
 def write_bridge_status(
@@ -339,7 +366,7 @@ def write_bridge_status(
         pending = read_refresh_request()
     except (OSError, ValueError, json.JSONDecodeError):
         pending = None
-    with bridge_status_lock():
+    with bridge_lock(".bridge-status.lock"):
         if last_publish_at is _KEEP_LAST_PUBLISH:
             preserved_publish_at = None
             try:
@@ -378,14 +405,19 @@ def bridge_summary() -> dict[str, Any]:
         payload = read_bounded_json(payload_path, MAX_PAYLOAD_BYTES)
         if payload is not None:
             payload = validate_payload(payload)
-        payload_valid = True
-    except (OSError, ValueError, json.JSONDecodeError):
+        plan_state = "missing"
+        if payload is not None:
+            generated = dt.datetime.fromisoformat(payload["generatedAt"].replace("Z", "+00:00"))
+            age = dt.datetime.now(dt.timezone.utc) - generated
+            plan_state = "stale" if age > dt.timedelta(hours=12) else "fresh"
+    except (OSError, ValueError):
         payload = None
-        payload_valid = False
+        plan_state = "invalid"
     return {
         "connected": True,
         "pendingRefresh": request,
         "refreshRequestInvalid": refresh_error,
-        "payloadValid": payload_valid,
+        "payloadValid": plan_state != "invalid",
+        "planState": plan_state,
         "payload": None if payload is None else {"generatedAt": payload["generatedAt"], "rowCount": len(payload["rows"])},
     }

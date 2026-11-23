@@ -24,21 +24,24 @@ struct TodayView: View {
     @State private var expandedRows: Set<String> = []
     private static let expandedKey = "today.expandedRows"
     @State private var showQuietSettings = false
+    @State private var showPlanDetails = false
+    @State private var showStartDetails = false
+    @State private var showUpcoming = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 5) {
-                Circle().fill(bridgeColor).frame(width: 6, height: 6)
-                Text(bridgeLabel).font(.caption2).foregroundStyle(.secondary)
-                    .help(bridgeDetail)
-                Spacer()
-            }.padding(.horizontal, 14).padding(.top, 8)
+            planHeader
             Group {
                 switch store.state {
                 case .loading: ProgressView().frame(width: 360, height: 150)
                 case .empty: message(icon: "calendar.badge.exclamationmark", title: "Nothing published for Today", detail: "Ask Codex to publish your Today plan.")
                 case .malformed(let reason): message(icon: "exclamationmark.triangle", title: "Today data needs attention", detail: reason)
-                case .ready(let payload, let isStale): payloadView(payload, isStale: isStale)
+                case .ready(let payload, let isStale):
+                    if showUpcoming, let next = payload.next {
+                        upcomingView(next)
+                    } else {
+                        payloadView(payload, isStale: isStale)
+                    }
                 }
             }
         }
@@ -46,43 +49,83 @@ struct TodayView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             if startsStore { store.start() }
-            expandedRows = Set(scrollDefaults.stringArray(forKey: Self.expandedKey) ?? [])
+            expandedRows.formUnion(scrollDefaults.stringArray(forKey: Self.expandedKey) ?? [])
         }
         .onChange(of: expandedRows) { _, rows in
             scrollDefaults.set(Array(rows).sorted(), forKey: Self.expandedKey)
         }
+        .onChange(of: store.selectedRowID) { _, id in
+            if id != nil { showUpcoming = false }
+        }
     }
 
-    private var bridgeLabel: String {
-        if store.refreshPending { return "Refresh requested, waiting for agent" }
-        switch store.bridgeConnection {
-        case .connected: return "Connected"
-        case .refreshing: return "Refresh requested, waiting for agent"
-        case .disconnected: return "Offline • saved plan"
-        case .stale: return "Connection inactive • saved plan"
-        case .error: return "Connection needs attention • saved plan"
+    private var planHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("Today").font(.headline)
+                if case .ready(let payload, let isStale) = store.state {
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        let label = updateLabel(payload.generatedAt, at: context.date)
+                        Text(store.showingPreviousPlan ? "Showing previous plan · \(label)" :
+                             isStale ? "Stale plan · \(label)" : label)
+                            .font(.caption).foregroundStyle(isStale || store.showingPreviousPlan ? Color.orange : Color.secondary)
+                            .lineLimit(1)
+                            .help(payload.generatedAt.formatted(date: .complete, time: .shortened))
+                    }
+                }
+                Spacer(minLength: 4)
+                if case .ready(let payload, _) = store.state, payload.next != nil {
+                    Button {
+                        showUpcoming.toggle()
+                    } label: {
+                        Label(showUpcoming ? "Back to tasks" : "Upcoming",
+                              systemImage: showUpcoming ? "chevron.left" : "calendar")
+                    }
+                    .help(showUpcoming ? "Return to the task list" : "Show upcoming dates and milestones")
+                }
+                Button(store.refreshPending ? "Requested" : "Request refresh") { store.requestRefresh() }
+                    .disabled(store.refreshPending || store.state == .loading)
+                    .help("Ask an active agent to publish a new plan.")
+                Button {
+                    showPlanDetails.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .accessibilityLabel("Today connection details")
+                .popover(isPresented: $showPlanDetails) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Today connection").font(.headline)
+                        Text(bridgeDetail)
+                        if let requestedAt = store.refreshRequestedAt {
+                            Text("Requested \(requestedAt.formatted(date: .abbreviated, time: .shortened))")
+                        }
+                        Text("An active agent needs to pick up the request and publish a plan.")
+                            .foregroundStyle(.secondary)
+                        if let revision = Bundle.main.object(forInfoDictionaryKey: "BNSourceRevision") as? String,
+                           !revision.isEmpty {
+                            Text("Build \(revision)").textSelection(.enabled)
+                        }
+                    }
+                    .font(.caption).padding(12).frame(width: 260, alignment: .leading)
+                }
+            }
+            .buttonStyle(.bordered)
+            if store.refreshPending {
+                Text("Waiting for an agent").font(.caption).foregroundStyle(.secondary)
+            }
+            if let issue = store.refreshIssue {
+                Text(issue).font(.caption).foregroundStyle(.orange)
+            }
         }
+        .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 4)
     }
 
     private var bridgeDetail: String {
-        let connection: String
         switch store.bridgeConnection {
-        case .connected, .refreshing: connection = "A local MCP transport is connected."
-        case .disconnected: connection = "The local MCP transport is offline."
-        case .stale: connection = "The local MCP heartbeat is stale."
-        case .error: connection = "The bridge status record was rejected."
-        }
-        return connection + " Refresh requests need an active agent to publish a new plan."
-    }
-
-    private var bridgeColor: Color {
-        if store.refreshPending { return .blue }
-        switch store.bridgeConnection {
-        case .connected: return .green
-        case .refreshing: return .blue
-        case .disconnected: return .gray
-        case .stale: return .orange
-        case .error: return .red
+        case .connected, .refreshing: return "A local MCP transport is connected."
+        case .disconnected: return "The local MCP transport is offline."
+        case .stale: return "The local MCP heartbeat is stale."
+        case .error: return "The bridge status record was rejected."
         }
     }
 
@@ -91,40 +134,81 @@ struct TodayView: View {
             Image(systemName: icon).font(.title2).foregroundStyle(.gray)
             Text(title).font(.headline)
             Text(detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Request refresh") { store.requestRefresh() }.buttonStyle(.bordered)
         }.padding(24)
+    }
+
+    private func upcomingView(_ next: String) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Upcoming").font(.subheadline.weight(.semibold))
+                Text(next)
+                    .font(.callout)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
     }
 
     private func payloadView(_ payload: TodayPayload, isStale: Bool) -> some View {
         let visibleRows = preferences.rows(in: payload, retained: retainedRows)
         let hiddenCount = payload.rows.count - visibleRows.count
         return VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Today").font(.headline)
-                    if isStale { Text("STALE").font(.caption2.weight(.bold)).foregroundStyle(.orange) }
-                    Spacer()
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        Text(updateLabel(payload.generatedAt, at: context.date))
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .help(payload.generatedAt.formatted(date: .complete, time: .shortened))
+            HStack(spacing: 10) {
+                if let start = payload.start {
+                    Button {
+                        showStartDetails.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.right.circle").foregroundStyle(.tint)
+                            Text("Start").fontWeight(.semibold).fixedSize()
+                            Text(start).lineLimit(1).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .layoutPriority(1)
+                    .accessibilityLabel("Start: \(start)")
+                    .accessibilityHint("Show the full start instruction")
+                    .help(start)
+                    .popover(isPresented: $showStartDetails) {
+                        Text(start).font(.callout).textSelection(.enabled)
+                            .padding(12).frame(width: 300, alignment: .leading)
                     }
                 }
-                if let start = payload.start {
-                    HStack(alignment: .top, spacing: 5) {
-                        Text("Start:").font(.caption.weight(.semibold))
-                        Text(start).font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(2).help(start)
+                Spacer(minLength: 0)
+                if let deadline = store.upcomingDeadline, deadline.required,
+                   let row = payload.rows.first(where: { $0.id == deadline.rowID }) {
+                    Button {
+                        store.selectedRowID = row.id
+                    } label: {
+                        Label("Due \(deadline.dueAt.formatted(.dateTime.month(.abbreviated).day()))",
+                              systemImage: "calendar")
+                            .font(.caption)
+                            .fixedSize()
                     }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Next deadline: \(row.work), due \(deadline.dueAt.formatted(date: .abbreviated, time: .shortened))")
+                    .accessibilityHint("Reveal the task card")
+                    .help("\(row.work) · \(deadline.dueAt.formatted(date: .abbreviated, time: .shortened))")
                 }
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 14).padding(.vertical, 6)
             if let focus = store.focus {
-                HStack {
-                    Text(focus.endsAt <= store.now ? "Focus session finished: \(focus.work)" : "Focus: \(focus.work) · \(store.focusRemaining ?? "")")
-                        .font(.caption).lineLimit(1)
-                    Spacer()
-                    Button(focus.endsAt <= store.now ? "Clear" : "Stop") { store.stopFocus() }
+                let finished = focus.endsAt <= store.now
+                HStack(spacing: 6) {
+                    Text(finished ? "Focus finished" : "Focus")
+                        .font(.caption.weight(.semibold)).fixedSize()
+                    Text(focus.work).font(.caption).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if !finished, let remaining = store.focusRemaining {
+                        Text(remaining).font(.caption.monospacedDigit()).fixedSize()
+                            .accessibilityLabel("Focus time remaining: \(remaining)")
+                    }
+                    Button(finished ? "Clear" : "Stop") { store.stopFocus() }
                 }.padding(.horizontal, 14).padding(.bottom, 6)
             }
             Divider()
@@ -146,62 +230,86 @@ struct TodayView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     if payload.rows.isEmpty {
-                        Text("No ranked work remains. Keep the win small.").font(.subheadline).foregroundStyle(.secondary)
+                        Text("No tasks in this plan.").font(.subheadline).foregroundStyle(.secondary)
                     } else {
                         ForEach(Array(payload.rows.enumerated()).filter { visibleRows.contains($0.element) }, id: \.element.id) { index, row in
+                            let deadlines = preferences.deadlines(for: row.id, in: payload,
+                                retainedRows: revealedRows.union(store.focus.map { [$0.rowID] } ?? []),
+                                reminderIDs: Set(store.reminders.map { $0.deadline.id }))
+                            let nextDeadline = deadlines.filter { $0.dueAt > store.now }.min { $0.dueAt < $1.dueAt }
                             DisclosureGroup(isExpanded: Binding(
                                 get: { expandedRows.contains(row.id) },
                                 set: { if $0 { expandedRows.insert(row.id) } else { expandedRows.remove(row.id) } }
                             )) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    labeled("Purpose", row.purpose)
-                                    labeled("Method", row.studyMethod)
-                                    labeled("Why now", row.whyNow)
-                                    labeled("Done", row.doneWhen)
-                                    if preferences.requiredOnly && (payload.deadlines ?? []).contains(where: { $0.rowID == row.id }) && !(payload.deadlines ?? []).contains(where: { $0.rowID == row.id && $0.required }) && retainedRows.contains(row.id) {
-                                        Text("Optional work retained for focus, reminder or navigation")
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    ForEach(preferences.deadlines(for: row.id, in: payload,
-                                        retainedRows: revealedRows.union(store.focus.map { [$0.rowID] } ?? []),
-                                        reminderIDs: Set(store.reminders.map { $0.deadline.id }))) { deadline in
-                                        Text("\(deadline.required ? "Required" : "Optional") · Due \(deadline.dueAt.formatted(date: .abbreviated, time: .shortened)) · \(TodaySchedule.countdown(to: deadline.dueAt, at: store.now))")
-                                            .font(.caption).foregroundStyle(.orange)
-                                        if let action = payload.actions.first(where: { $0.id == deadline.actionID }) {
-                                            Button("Open submission site") { open(action) }.buttonStyle(.bordered)
+                                VStack(alignment: .leading, spacing: 9) {
+                                    taskSteps(row.studyMethod)
+                                    HStack(spacing: 8) {
+                                        Button(preferences.focusActionLabel) { store.startFocus(row: row) }
+                                            .buttonStyle(.bordered)
+                                        ForEach(payload.actions.filter { action in deadlines.contains { $0.actionID == action.id } }) { action in
+                                            Button(action.label) { open(action) }.buttonStyle(.bordered)
                                         }
                                     }
-                                    Button(preferences.focusActionLabel) { store.startFocus(row: row) }.buttonStyle(.bordered)
-                                    Text(row.basis.rawValue).font(.caption2).foregroundStyle(.secondary)
-                                }.padding(.top, 4)
+                                    DisclosureGroup("Task details") {
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            detailSection("Finish when", row.doneWhen)
+                                            detailSection("Timing", row.whyNow)
+                                            if preferences.requiredOnly && (payload.deadlines ?? []).contains(where: { $0.rowID == row.id }) && !(payload.deadlines ?? []).contains(where: { $0.rowID == row.id && $0.required }) && retainedRows.contains(row.id) {
+                                                Text("Optional work retained for focus, reminder or navigation")
+                                                    .font(.caption2).foregroundStyle(.secondary)
+                                            }
+                                            ForEach(deadlines) { deadline in
+                                                let due = deadline.dueAt.formatted(date: .abbreviated, time: .shortened)
+                                                let remaining = isStale || store.showingPreviousPlan ? "" :
+                                                    " · \(TodaySchedule.countdown(to: deadline.dueAt, at: store.now))"
+                                                Text("\(deadline.required ? "Required" : "Optional") · Due \(due)\(remaining)")
+                                                    .font(.caption).foregroundStyle(.orange)
+                                            }
+                                            Text("\(row.purpose.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))) · \(row.basis.rawValue)")
+                                                .font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                        .padding(.top, 6)
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                }.padding(.top, 8)
                             } label: {
-                                HStack(alignment: .top) {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     Text("\(index + 1). \(row.work)")
                                         .font(.subheadline.weight(.semibold))
                                         .fixedSize(horizontal: false, vertical: true)
-                                    Spacer(minLength: 8)
+                                        .layoutPriority(1)
+                                    Spacer(minLength: 0)
+                                    if let nextDeadline {
+                                        Text(nextDeadline.dueAt.formatted(.dateTime.month(.abbreviated).day()))
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(nextDeadline.required ? Color.orange : Color.secondary)
+                                            .fixedSize()
+                                            .accessibilityLabel("Due \(nextDeadline.dueAt.formatted(date: .abbreviated, time: .shortened))")
+                                    }
                                     Text(row.time)
                                         .font(.caption).foregroundStyle(.secondary)
                                         .multilineTextAlignment(.trailing)
-                                        .frame(maxWidth: 150, alignment: .trailing)
+                                        .frame(maxWidth: 130, alignment: .trailing)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
-                            }.padding(.vertical, preferences.compact ? 0 : 2).id(row.id)
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, preferences.compact ? 5 : 7)
+                            .background(.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                            .id(row.id)
                         }
                     }
                     if let anki = payload.anki {
                         Text(anki.status == .available ? "Anki: \(anki.reviewedToday ?? 0) reviewed, \(anki.newCards ?? 0) new" : "Anki is not running").font(.caption).foregroundStyle(.secondary)
                     }
-                    if let next = payload.next { labeled("Next", next) }
                     if let protected = payload.protectedTime { labeled("Protected", protected) }
                     HStack {
                         ForEach(payload.actions) { action in Button(action.label) { open(action) }.buttonStyle(.bordered) }
                         Spacer()
                         Button { showQuietSettings.toggle() } label: { Image(systemName: "moon") }
+                            .accessibilityLabel("Quiet hours")
                             .help("Quiet hours").popover(isPresented: $showQuietSettings) { TodayQuietSettings() }
-                        Button(store.refreshPending ? "Requested" : "Refresh") { store.requestRefresh() }
-                            .buttonStyle(.bordered).disabled(store.refreshPending)
-                            .help("Request a new plan from an active agent.")
                     }
                     if let notice = store.notice { Text(notice).font(.caption2).foregroundStyle(.orange) }
                     if let actionMessage { Text(actionMessage).font(.caption2).foregroundStyle(.orange) }
@@ -219,6 +327,33 @@ struct TodayView: View {
                 revealSelection(id, proxy: proxy)
             }
             }
+        }
+    }
+
+    private func taskSteps(_ method: String) -> some View {
+        let methodPrefixes = ["[Administrative] ", "[Apply] ", "[Memorize] ", "[Perform] ",
+                              "[Read and summarize] ", "[Understand] "]
+        let steps = method.split(whereSeparator: \.isNewline).map { rawLine in
+            let line = rawLine.trimmingCharacters(in: CharacterSet(charactersIn: "• ").union(.whitespaces))
+            guard let prefix = methodPrefixes.first(where: { line.hasPrefix($0) }) else { return line }
+            return String(line.dropFirst(prefix.count))
+        }.filter { !$0.isEmpty }
+
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
+                    Text(step).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.callout)
+    }
+
+    private func detailSection(_ title: String, _ body: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).fontWeight(.semibold).foregroundStyle(.primary)
+            Text(body).fixedSize(horizontal: false, vertical: true)
         }
     }
 

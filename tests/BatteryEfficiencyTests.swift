@@ -98,6 +98,50 @@ final class FakeWaveform: AudioCaptureLevelsConsumer {}
         instant -= 10; store.reload(); precondition(store.notice != nil)
         instant += 10; store.reload(); precondition(store.notice == nil)
         try FileManager.default.removeItem(at: url); store.reload()
+        // A request survives repeated clicks, process restart, and a publisher holding the lock.
+        store.requestRefresh()
+        let requestURL = directory.appendingPathComponent("refresh-request.json")
+        let request = try Data(contentsOf: requestURL)
+        let requestTime = store.refreshRequestedAt
+        precondition(requestTime != nil)
+        instant += 3
+        let restarted = TodayStore(defaults: defaults, clock: { instant }, directory: directory)
+        restarted.reload()
+        precondition(restarted.refreshRequestedAt == requestTime)
+        restarted.requestRefresh()
+        let repeated = try Data(contentsOf: requestURL)
+        precondition(repeated == request)
+        let requestLock = directory.appendingPathComponent(".refresh-request.lock")
+        let lockFD = open(requestLock.path, O_RDWR)
+        precondition(lockFD >= 0 && flock(lockFD, LOCK_EX) == 0)
+        restarted.requestRefresh()
+        precondition(restarted.refreshRequestedAt == requestTime && restarted.refreshIssue == nil)
+        try FileManager.default.removeItem(at: requestURL)
+        restarted.requestRefresh()
+        precondition(restarted.refreshIssue != nil && !FileManager.default.fileExists(atPath: requestURL.path))
+        close(lockFD)
+        restarted.requestRefresh()
+        let newRequest = try Data(contentsOf: requestURL)
+        precondition(newRequest != request)
+
+        var longPlan = try JSONSerialization.jsonObject(with: payload(deadlines: true)) as! [String: Any]
+        var deadlines = longPlan["deadlines"] as! [[String: Any]]
+        let farDeadline = formatter.string(from: instant.addingTimeInterval(13 * 3600))
+        deadlines[0]["dueAt"] = farDeadline
+        longPlan["deadlines"] = deadlines
+        try write(JSONSerialization.data(withJSONObject: longPlan), to: url)
+        store.reload()
+        precondition(store.upcomingDeadline != nil)
+        instant += (12 * 3600 + 1)
+        store.tick()
+        guard case .ready(_, isStale: true) = store.state else { fatalError("Snapshot did not expire") }
+        precondition(store.upcomingDeadline == nil && store.now < instant)
+        longPlan["generatedAt"] = formatter.string(from: instant)
+        try write(JSONSerialization.data(withJSONObject: longPlan), to: url)
+        store.reload()
+        precondition(store.upcomingDeadline != nil)
+        print("Refresh ID reuse, cross-process lock behavior, stale deadline suppression and recovery PASS")
+
         // A watcher bound to an ancestor discovers a newly created directory; then a
         // whole-directory replacement must rebind and observe later payload writes.
         let watched = directory.appendingPathComponent("watched")
