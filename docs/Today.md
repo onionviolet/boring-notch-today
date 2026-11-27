@@ -212,6 +212,12 @@ and O8 handoff are in Customization.md. The earlier O7 source checkpoint predate
 `CLAUDE.md`; native restart/keyboard/VoiceOver acceptance remains open.
 
 
+## Checking keyboard and VoiceOver on the installed Today tab
+
+On November 27 the running executable came from `/Applications/Boring Notch.app`, bundle version 2.8-beta.0, executable SHA-256 `64662385207e92bbfd0a4b412f348eca59896ca341375305ed7427c2225b62b5`. A read-only Swift probe over SSH found one running app. The probe returned false from `AXIsProcessTrusted()` and error `-25211` (accessibility API disabled for that caller) when reading its windows. Log that return code before interpreting the window count. It gives no information about which controls VoiceOver can reach.
+
+In source at `30616be`, the Today tab button supplies its label and selected trait. Rows use a SwiftUI disclosure group. For installed acceptance, start with the notch open and a populated Today tab. With the keyboard, reach Today, expand one collapsed row, reach its details and collapse it again. With VoiceOver, record whether the tab announces Today and selection, whether the row title and state are spoken, and where focus lands after collapse. Record the first unreachable control or unexpected announcement beside the executable identity. The November 27 probe did not exercise these interactions.
+
 ## Named Today presets (O8 source, October 13)
 
 Settings → Notch offers Study, Quiet, Media and one local Custom slot over the four
